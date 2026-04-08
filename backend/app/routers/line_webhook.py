@@ -285,14 +285,21 @@ async def line_webhook(
 
     # อัปเดต targetId ใน config
     if updated_target_id != conf.get("targetId", ""):
-        new_configs = [
-            {**c, "targetId": updated_target_id} if c.get("id") == config_id else c
-            for c in configs
-        ]
-        await db.system_settings.update_one(
-            {"_id": SETTINGS_DOC_ID},
-            {"$set": {"lineOaConfigs": new_configs, "webhookUpdatedAt": datetime.now()}},
-        )
+        if config_id == "main":
+            await db.system_settings.update_one(
+                {"_id": SETTINGS_DOC_ID},
+                {"$set": {"mainLineOa.targetId": updated_target_id, "webhookUpdatedAt": datetime.now()}},
+            )
+        else:
+            configs: list = doc.get("lineOaConfigs", [])
+            new_configs = [
+                {**c, "targetId": updated_target_id} if c.get("id") == config_id else c
+                for c in configs
+            ]
+            await db.system_settings.update_one(
+                {"_id": SETTINGS_DOC_ID},
+                {"$set": {"lineOaConfigs": new_configs, "webhookUpdatedAt": datetime.now()}},
+            )
 
     return Response(status_code=200)
 
