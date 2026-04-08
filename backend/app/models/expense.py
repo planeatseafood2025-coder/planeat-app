@@ -33,7 +33,8 @@ class RepairRow(BaseModel):
 
 class SaveExpenseRequest(BaseModel):
     username: str
-    category: str      # Thai name e.g. 'ค่าแรงงาน'
+    category: Optional[str] = None   # Thai name e.g. 'ค่าแรงงาน' (legacy)
+    catId:    Optional[str] = None   # dynamic category ID (new flow)
     date: str          # dd/MM/yyyy
     rows: List[Any]    # flexible — varies by category
 

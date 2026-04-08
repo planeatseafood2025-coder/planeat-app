@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"c:/Users/hot it/Downloads/planeat-app/frontend/app/\\(app\\)/inventory/\")",
+      "Bash(docker compose:*)",
+      "Bash(docker volume:*)",
+      "Bash(docker exec:*)",
+      "Bash(curl -s http://localhost:8001/api/inventory/warehouses)",
+      "Bash(head -5 \"c:/Users/hot it/Downloads/planeat-app/frontend/app/\\(app\\)/inventory/page.tsx\")",
+      "Bash(docker info:*)",
+      "Bash(docker context:*)",
+      "Bash(Get-Process 'Docker Desktop')",
+      "Bash(tasklist)",
+      "Bash(docker-compose build:*)"
+    ]
+  }
+}

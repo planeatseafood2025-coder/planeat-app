@@ -1,10 +1,10 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { getSession } from '@/lib/auth'
-import { fetchWithCache, invalidateCache } from '@/lib/cache'
+import { invalidateCache } from '@/lib/cache'
 import { expenseApi } from '@/lib/api'
-import { fmt, todayIso, todayMonth, monthInputToApi, isoToThai } from '@/lib/utils'
-import type { CatKey, Expense, ExpensesResponse } from '@/types'
+import { fmt, todayIso, isoToThai } from '@/lib/utils'
+import type { CatKey } from '@/types'
 import { CAT_STYLE, CAT_NAMES } from '@/types'
 
 // ─── Item types per category ─────────────────────────────────────
@@ -58,34 +58,6 @@ export default function ExpensePage() {
     repair: { open: false, items: [] },
   })
   const [submitting, setSubmitting] = useState<CatKey | null>(null)
-
-  // Expense history
-  const [historyMonth, setHistoryMonth] = useState(todayMonth())
-  const [historyCat, setHistoryCat] = useState('all')
-  const [expenses, setExpenses] = useState<Expense[]>([])
-  const [histLoading, setHistLoading] = useState(false)
-  const [histError, setHistError] = useState('')
-
-  const loadExpenses = useCallback(async (month: string) => {
-    const mY = monthInputToApi(month)
-    setHistLoading(true)
-    setHistError('')
-    try {
-      await fetchWithCache<ExpensesResponse>(
-        `expenses-v2:${mY}`,
-        () => expenseApi.getExpenses(mY) as Promise<ExpensesResponse>,
-        {
-          onData: (res) => { setExpenses(res.expenses || []); setHistLoading(false) },
-          onSkeleton: () => setHistLoading(true),
-        }
-      )
-    } catch (e: unknown) {
-      setHistError(e instanceof Error ? e.message : 'โหลดไม่สำเร็จ')
-      setHistLoading(false)
-    }
-  }, [])
-
-  useState(() => { loadExpenses(historyMonth) })
 
   function togglePanel(cat: CatKey) {
     setPanels((prev) => {
@@ -176,7 +148,6 @@ export default function ExpensePage() {
           [cat]: { open: false, items: [] },
         }))
         invalidateCache('overview-v2:*', 'expenses-v2:*')
-        await loadExpenses(historyMonth)
         const { default: Swal } = await import('sweetalert2')
         Swal.fire({ icon: 'success', title: 'บันทึกสำเร็จ!', text: res.message, timer: 2000, showConfirmButton: false })
       } else {
@@ -188,11 +159,6 @@ export default function ExpensePage() {
       setSubmitting(null)
     }
   }
-
-  // History rendering
-  const filteredExpenses = historyCat === 'all' ? expenses : expenses.filter((e) => e.catKey === historyCat)
-  const sums = { labor: 0, raw: 0, chem: 0, repair: 0 } as Record<CatKey, number>
-  expenses.forEach((e) => { sums[e.catKey] = (sums[e.catKey] || 0) + e.amount })
 
   return (
     <div className="page-section active">
@@ -293,119 +259,6 @@ export default function ExpensePage() {
           </div>
         )
       })}
-
-      {/* Expense History */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-4">
-        <div className="p-4 border-b border-slate-50">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <span className="material-icons-round text-blue-500" style={{ fontSize: 18 }}>history</span>
-              ประวัติการบันทึก
-            </h3>
-            <button
-              className="text-xs px-2 py-1 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50 flex items-center gap-1"
-              onClick={async () => {
-                const { default: Swal } = await import('sweetalert2')
-                const r = await Swal.fire({ title: 'จัดระเบียบข้อมูล?', icon: 'info', showCancelButton: true, confirmButtonText: 'ยืนยัน', cancelButtonText: 'ยกเลิก' })
-                if (r.isConfirmed) {
-                  try {
-                    await expenseApi.fixData()
-                    Swal.fire('สำเร็จ', 'ตรวจสอบข้อมูลเรียบร้อย', 'success')
-                    loadExpenses(historyMonth)
-                  } catch (e: unknown) {
-                    Swal.fire('ผิดพลาด', e instanceof Error ? e.message : 'error', 'error')
-                  }
-                }
-              }}
-            >
-              <span className="material-icons-round" style={{ fontSize: 12 }}>build</span>
-              ซ่อมแซม/จัดระเบียบ
-            </button>
-          </div>
-          <div className="flex gap-3 flex-wrap">
-            <input
-              type="month"
-              className="form-input"
-              style={{ padding: '6px 10px', maxWidth: 160 }}
-              value={historyMonth}
-              onChange={(e) => { setHistoryMonth(e.target.value); loadExpenses(e.target.value) }}
-            />
-            <select
-              className="form-input"
-              style={{ padding: '6px 10px', maxWidth: 180 }}
-              value={historyCat}
-              onChange={(e) => setHistoryCat(e.target.value)}
-            >
-              <option value="all">ทุกหมวด</option>
-              <option value="labor">ค่าแรงงาน</option>
-              <option value="raw">ค่าวัตถุดิบ</option>
-              <option value="chem">ค่าเคมี/หีบห่อ</option>
-              <option value="repair">ค่าซ่อมแซม</option>
-            </select>
-          </div>
-
-          {/* Summary bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-            {(['labor','raw','chem','repair'] as CatKey[]).map((k) => (
-              <div key={k} className="rounded-lg p-2 text-center" style={{ background: CAT_STYLE[k].bg }}>
-                <p className="text-xs font-semibold" style={{ color: CAT_STYLE[k].color }}>{CAT_STYLE[k].label}</p>
-                <p className="text-sm font-bold text-slate-800">{fmt(sums[k] || 0)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          {histLoading ? (
-            <div className="py-8 text-center">
-              <span className="material-icons-round spin text-blue-400" style={{ fontSize: 32 }}>refresh</span>
-            </div>
-          ) : histError ? (
-            <div className="py-8 text-center text-red-500 text-sm">{histError}</div>
-          ) : filteredExpenses.length === 0 ? (
-            <div className="py-10 text-center">
-              <span className="material-icons-round text-slate-300" style={{ fontSize: 36 }}>inbox</span>
-              <p className="text-sm text-slate-400 mt-1">ไม่พบรายการ</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  {['วันที่','หมวด','รายละเอียด','ยอด','ผู้บันทึก','หมายเหตุ'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredExpenses.map((e, i) => {
-                  const cs = CAT_STYLE[e.catKey]
-                  return (
-                    <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap font-medium">{e.date}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-block text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap" style={{ background: cs?.bg, color: cs?.color }}>
-                          {cs?.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-700 max-w-xs truncate">{e.detail || '—'}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-slate-800 text-right whitespace-nowrap">{fmt(e.amount)}</td>
-                      <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{e.recorder || '—'}</td>
-                      <td className="px-4 py-3 text-xs text-slate-400">{e.note || ''}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="bg-blue-50 border-t-2 border-blue-100">
-                  <td colSpan={3} className="px-4 py-3 text-xs font-bold text-blue-700">รวม {filteredExpenses.length} รายการ</td>
-                  <td className="px-4 py-3 text-right font-bold text-blue-800">{fmt(filteredExpenses.reduce((s, e) => s + e.amount, 0))}</td>
-                  <td colSpan={2} />
-                </tr>
-              </tfoot>
-            </table>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
@@ -464,7 +317,7 @@ function ItemCard({ cat, item, idx, total, canDelete, onChange, onDelete }: Item
       })()}
 
       {cat === 'raw' && (() => {
-        const i = item as RawRow
+        const i = item as RawItem
         return (
           <>
             <div className="mb-3">
@@ -490,7 +343,7 @@ function ItemCard({ cat, item, idx, total, canDelete, onChange, onDelete }: Item
       })()}
 
       {cat === 'chem' && (() => {
-        const i = item as ChemRow
+        const i = item as ChemItem
         return (
           <>
             <div className="mb-3">
@@ -541,8 +394,3 @@ function ItemCard({ cat, item, idx, total, canDelete, onChange, onDelete }: Item
     </div>
   )
 }
-
-// Type helpers
-interface RawRow { itemName: string; quantity: string; pricePerKg: string; note: string }
-interface ChemRow { itemName: string; quantity: string; price: string; note: string }
-interface RepairItem { repairItem: string; totalCost: string; note: string }

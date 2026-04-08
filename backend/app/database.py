@@ -14,6 +14,13 @@ async def connect_db():
     await db.expenses.create_index("date")
     await db.expenses.create_index("catKey")
     await db.budgets.create_index("monthYear", unique=True)
+    await db.inventory_items.create_index([("code", 1), ("warehouseId", 1)], unique=True)
+    await db.inventory_items.create_index("warehouseId")
+    await db.inventory_items.create_index("category")
+    await db.inventory_transactions.create_index("warehouseId")
+    await db.inventory_transactions.create_index("itemId")
+    await db.inventory_transactions.create_index("createdAt")
+    await db.warehouses.create_index("id", unique=True)
 
 
 async def close_db():

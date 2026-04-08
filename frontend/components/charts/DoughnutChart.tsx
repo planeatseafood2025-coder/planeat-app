@@ -8,11 +8,14 @@ interface DoughnutChartProps {
   colors: string[]
   centerText?: string
   centerSubText?: string
+  onSliceClick?: (index: number) => void
 }
 
-export default function DoughnutChart({ labels, data, colors, centerText, centerSubText }: DoughnutChartProps) {
+export default function DoughnutChart({ labels, data, colors, centerText, centerSubText, onSliceClick }: DoughnutChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<ChartType | null>(null)
+  const onSliceClickRef = useRef(onSliceClick)
+  onSliceClickRef.current = onSliceClick
 
   useEffect(() => {
     let Chart: typeof import('chart.js').Chart
@@ -76,6 +79,11 @@ export default function DoughnutChart({ labels, data, colors, centerText, center
               },
             },
           },
+          onClick: (_event, elements) => {
+            if (elements.length > 0 && onSliceClickRef.current) {
+              onSliceClickRef.current(elements[0].index)
+            }
+          },
         },
         plugins: [centerTextPlugin as never],
       })
@@ -99,7 +107,7 @@ export default function DoughnutChart({ labels, data, colors, centerText, center
 
   return (
     <div className="relative" style={{ maxWidth: 260, margin: '0 auto' }}>
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} style={{ cursor: onSliceClick ? 'pointer' : 'default' }} />
     </div>
   )
 }

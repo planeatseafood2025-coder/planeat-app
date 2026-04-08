@@ -94,7 +94,9 @@ export function invalidateCache(...keys: string[]): void {
     }
     if (k.endsWith('*')) {
       const prefix = k.slice(0, -1)
-      ;[..._dataCache.keys()].filter((key) => key.startsWith(prefix)).forEach((key) => _dataCache.delete(key))
+      Array.from(_dataCache.keys())
+        .filter((key) => key.startsWith(prefix))
+        .forEach((key) => _dataCache.delete(key))
       if (typeof window !== 'undefined') {
         Object.keys(localStorage)
           .filter((key) => key.startsWith(CACHE_PREFIX + prefix))

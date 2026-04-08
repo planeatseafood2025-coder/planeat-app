@@ -1,10 +1,19 @@
-fastapi==0.111.0
-uvicorn[standard]==0.30.1
-motor==3.5.0
-pymongo==4.8.0
-pydantic==2.7.4
-pydantic-settings==2.3.4
+# Web framework
+fastapi==0.115.4
+uvicorn[standard]==0.32.1
+
+# MongoDB — motor 3.6.x ต้องการ pymongo>=4.9,<4.10
+motor==3.6.0
+pymongo==4.9.2
+
+# Data validation
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Auth
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-python-multipart==0.0.9
+
+# Utilities
+python-multipart==0.0.17
 python-dotenv==1.0.1

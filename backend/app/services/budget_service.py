@@ -46,18 +46,22 @@ async def get_budget_summary(month_year: Optional[str] = None) -> dict:
     agg_today = await db.expenses.aggregate(pipeline_today).to_list(None)
     spent_today = {r["_id"]: r["total"] for r in agg_today}
 
-    cats = ["labor", "raw", "chem", "repair"]
+    # Load dynamic categories from DB
+    cat_docs = await db.expense_categories.find({"isActive": True}).sort("order", 1).to_list(None)
+    if not cat_docs:
+        cat_docs = [{"_id": k, "name": k, "color": "#64748b", "icon": "receipt_long"} for k in ["labor", "raw", "chem", "repair"]]
+
     data = {}
-    for cat in cats:
-        cat_budget = budgets_raw.get(cat, {})
+    for cat_doc in cat_docs:
+        cat_id = cat_doc["_id"]
+        cat_budget = budgets_raw.get(cat_id, {})
         monthly = float(cat_budget.get("monthly", 0))
         daily_rate = float(cat_budget.get("daily", 0))
-        s_today = spent_today.get(cat, 0.0)
-        s_month = spent_month.get(cat, 0.0)
-        # remainDay = (currentDay * dailyRate) - spentMonth
+        s_today = spent_today.get(cat_id, 0.0)
+        s_month = spent_month.get(cat_id, 0.0)
         remain_day = (current_day * daily_rate) - s_month
         remain_month = monthly - s_month
-        data[cat] = {
+        data[cat_id] = {
             "monthlyBudget": monthly,
             "dailyRate": daily_rate,
             "spentToday": s_today,
@@ -65,6 +69,9 @@ async def get_budget_summary(month_year: Optional[str] = None) -> dict:
             "remainDay": remain_day,
             "remainMonth": remain_month,
             "currentDay": current_day,
+            "label": cat_doc.get("name", cat_id),
+            "color": cat_doc.get("color", "#64748b"),
+            "icon": cat_doc.get("icon", "receipt_long"),
         }
 
     return {

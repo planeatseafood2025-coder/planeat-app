@@ -18,25 +18,24 @@ interface NavSection {
 
 const NAV: NavSection[] = [
   {
-    label: '',
-    items: [
-      { page: 'overview',   label: 'ภาพรวม',            icon: 'dashboard' },
-    ],
-  },
-  {
     label: 'การเงิน',
     items: [
-      { page: 'expense',    label: 'บันทึกรายจ่าย',       icon: 'receipt_long' },
-      { page: 'budget',     label: 'งบประมาณ',            icon: 'account_balance_wallet' },
-      { page: 'search',     label: 'ค้นหา/แก้ไขข้อมูล',  icon: 'manage_search' },
+      { page: 'expense-control',  label: 'ระบบควบคุมค่าใช้จ่าย',    icon: 'receipt_long' },
+      { page: 'budget',           label: 'งบประมาณ',                 icon: 'account_balance_wallet' },
     ],
   },
   {
     label: 'สำนักงาน',
     items: [
       { page: 'employees',  label: 'ข้อมูลพนักงาน',       icon: 'groups',       soon: true },
-      { page: 'inventory',  label: 'คลังสินค้า',           icon: 'inventory_2',  soon: true },
+      { page: 'inventory',  label: 'คลังสินค้า',           icon: 'inventory_2' },
       { page: 'documents',  label: 'เอกสาร',               icon: 'folder_open',  soon: true },
+    ],
+  },
+  {
+    label: 'การสื่อสาร',
+    items: [
+      { page: 'chat',       label: 'แชท',                  icon: 'chat' },
     ],
   },
   {
@@ -66,12 +65,12 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
   function navTo(page: string) {
     const allowed = PAGE_ACCESS[page] || ['admin']
     if (!allowed.includes(user.role)) return
-    router.push(`/${page === 'overview' ? 'dashboard' : page}`)
+    router.push(`/${page === 'overview' ? 'expense-control' : page}`)
     setMobileOpen(false)
   }
 
   function isActive(page: string) {
-    if (page === 'overview') return currentPage === 'dashboard'
+    if (page === 'overview') return currentPage === 'expense-control'
     return currentPage === page
   }
 
@@ -119,24 +118,39 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
         </div>
 
         {/* User info */}
-        <div className="p-3 mx-2 my-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.08)' }}>
+        <button
+          onClick={() => router.push('/profile')}
+          className="p-3 mx-2 my-3 rounded-xl w-auto text-left"
+          style={{ background: 'rgba(255,255,255,0.08)', border: 'none', cursor: 'pointer', display: 'block' }}
+        >
           <div className="flex items-center gap-3">
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(255,255,255,0.2)' }}
-            >
-              <span className="material-icons-round text-white" style={{ fontSize: 18 }}>person</span>
-            </div>
+            {user.profilePhoto ? (
+              <img
+                src={user.profilePhoto}
+                alt="avatar"
+                className="w-8 h-8 rounded-full flex-shrink-0"
+                style={{ objectFit: 'cover', border: '2px solid rgba(255,255,255,0.3)' }}
+              />
+            ) : (
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background: 'rgba(255,255,255,0.2)' }}
+              >
+                <span className="material-icons-round text-white" style={{ fontSize: 18 }}>person</span>
+              </div>
+            )}
             {!collapsed && (
               <div className="sidebar-text min-w-0">
-                <p className="text-white text-xs font-semibold truncate">{user.name}</p>
+                <p className="text-white text-xs font-semibold truncate">
+                  {user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : user.name}
+                </p>
                 <p className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.5)' }}>
                   {ROLE_LABELS[user.role]}
                 </p>
               </div>
             )}
           </div>
-        </div>
+        </button>
 
         {/* Nav */}
         <div className="flex-1 overflow-y-auto py-1">

@@ -1,5 +1,19 @@
 // ─── User & Auth ─────────────────────────────────────────────────
-export type Role = 'admin' | 'accountant' | 'recorder' | 'viewer'
+export type Role =
+  | 'super_admin'
+  | 'it_manager' | 'it_support'
+  | 'accounting_manager' | 'accountant'
+  | 'hr_manager' | 'hr'
+  | 'warehouse_manager' | 'warehouse_staff'
+  | 'production_manager' | 'production_staff'
+  | 'marketing_manager' | 'marketing_staff'
+  | 'engineering_manager' | 'engineering_staff'
+  | 'general_user'
+  // legacy
+  | 'admin' | 'recorder' | 'viewer'
+
+export type UserStatus = 'active' | 'pending' | 'suspended'
+
 export type CatKey = 'labor' | 'raw' | 'chem' | 'repair'
 
 export interface UserPermissions {
@@ -14,7 +28,61 @@ export interface User {
   name: string
   role: Role
   permissions: UserPermissions
+  firstName?: string
+  lastName?: string
+  nickname?: string
+  phone?: string
+  lineId?: string
+  jobTitle?: string
+  status?: UserStatus
   token?: string
+  profilePhoto?: string
+  signature?: string
+}
+
+// ─── Notifications ────────────────────────────────────────────────
+export interface Notification {
+  id: string
+  recipientUsername: string
+  senderUsername: string
+  type: 'permission_request' | 'status_change' | 'general'
+  title: string
+  body: string
+  read: boolean
+  createdAt: string
+  data?: Record<string, unknown>
+}
+
+export interface NotificationsResponse {
+  success: boolean
+  notifications: Notification[]
+  unread: number
+}
+
+// ─── Chat ─────────────────────────────────────────────────────────
+export interface ChatMessage {
+  id: string
+  roomId: string
+  sender: string
+  content: string
+  createdAt: string
+}
+
+export interface ChatContact {
+  username: string
+  name: string
+  firstName?: string
+  lastName?: string
+  nickname?: string
+  role: Role
+  jobTitle?: string
+  profilePhoto?: string
+}
+
+export interface ChatConversation {
+  roomId: string
+  otherUser: ChatContact | null
+  lastMessage: ChatMessage
 }
 
 // ─── Expense ─────────────────────────────────────────────────────
@@ -122,6 +190,9 @@ export interface LoginResponse {
   name?: string
   role?: Role
   permissions?: UserPermissions
+  firstName?: string
+  lastName?: string
+  nickname?: string
   token?: string
 }
 
@@ -148,16 +219,24 @@ export interface AnalysisResponse {
 export interface UsersResponse {
   success: boolean
   users: UserRecord[]
+  total: number
+  page: number
+  perPage: number
 }
 
 export interface UserRecord {
   username: string
   name: string
+  firstName?: string
+  lastName?: string
+  nickname?: string
+  phone?: string
+  lineId?: string
+  jobTitle?: string
   role: Role
-  labor: boolean
-  raw: boolean
-  chem: boolean
-  repair: boolean
+  status: UserStatus
+  permissions: UserPermissions
+  profilePhoto?: string
 }
 
 // ─── UI Helpers ──────────────────────────────────────────────────
@@ -182,39 +261,282 @@ export const CHART_COLORS: Record<CatKey, string> = {
   repair: '#f43f5e',
 }
 
+// Roles that can manage users
+export const ADMIN_ROLES: Role[] = ['super_admin', 'it_manager', 'it_support', 'admin']
+
+const ALL_ROLES: Role[] = [
+  'super_admin', 'it_manager', 'it_support',
+  'accounting_manager', 'accountant',
+  'hr_manager', 'hr',
+  'warehouse_manager', 'warehouse_staff',
+  'production_manager', 'production_staff',
+  'marketing_manager', 'marketing_staff',
+  'engineering_manager', 'engineering_staff',
+  'general_user',
+  'admin', 'recorder', 'viewer',
+]
+
 export const PAGE_ACCESS: Record<string, Role[]> = {
-  overview:   ['admin', 'accountant', 'recorder', 'viewer'],
-  expense:    ['admin', 'accountant', 'recorder'],
-  budget:     ['admin', 'accountant'],
-  employees:  ['admin'],
-  inventory:  ['admin'],
-  documents:  ['admin'],
-  reports:    ['admin'],
-  'it-access':['admin'],
+  overview:            ALL_ROLES,
+  expense:             ['super_admin','it_manager','accounting_manager','accountant','admin','recorder'],
+  'expense-control':   ALL_ROLES,
+  budget:              ['super_admin','it_manager','accounting_manager','accountant','admin'],
+  employees:           ['super_admin','it_manager','hr_manager','hr','admin'],
+  inventory:           ['super_admin','it_manager','warehouse_manager','warehouse_staff',
+                         'production_manager','production_staff','accounting_manager','accountant','admin','recorder','viewer'],
+  documents:           ['super_admin','it_manager','admin'],
+  reports:             ['super_admin','it_manager','accounting_manager','admin'],
+  'it-access':         ['super_admin','it_manager','it_support','admin'],
+  chat:                ALL_ROLES,
+}
+
+// ─── Warehouse ───────────────────────────────────────────────────
+export interface Warehouse {
+  id: string
+  name: string
+  color: string
+  bg: string
+  icon: string
+  desc: string
+}
+
+export interface WarehousesResponse {
+  success: boolean
+  warehouses: Warehouse[]
+}
+
+// ─── Inventory ───────────────────────────────────────────────────
+export interface InventoryItem {
+  warehouseId: string
+  id: string
+  code: string
+  name: string
+  category: string
+  unit: string
+  currentStock: number
+  minStock: number
+  unitCost: number
+  location: string
+  note: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type TxType = 'receive' | 'issue' | 'adjust'
+
+export interface InventoryTransaction {
+  id: string
+  itemId: string
+  itemCode: string
+  itemName: string
+  type: TxType
+  quantity: number
+  quantityBefore: number
+  quantityAfter: number
+  unitCost: number
+  reference: string
+  note: string
+  recorder: string
+  createdAt: string
+}
+
+export interface InventorySummary {
+  totalItems: number
+  totalValue: number
+  lowStockCount: number
+  outOfStockCount: number
+  todayMovements: number
+  byCategory: Record<string, { count: number; value: number }>
+  lowStockItems: InventoryItem[]
+  topValueItems: InventoryItem[]
+}
+
+export interface InventoryItemsResponse {
+  success: boolean
+  items: InventoryItem[]
+}
+
+export interface InventoryTransactionsResponse {
+  success: boolean
+  transactions: InventoryTransaction[]
+}
+
+export interface InventorySummaryResponse {
+  success: boolean
+  summary: InventorySummary
 }
 
 export const PAGE_TITLES: Record<string, string> = {
-  overview:   'ภาพรวม',
-  expense:    'บันทึกค่าใช้จ่าย',
-  budget:     'งบประมาณ',
+  overview:          'ภาพรวม',
+  expense:           'บันทึกค่าใช้จ่าย',
+  'expense-control': 'ระบบควบคุมค่าใช้จ่าย',
+  budget:            'งบประมาณ',
   employees:  'ข้อมูลพนักงาน',
   inventory:  'คลังสินค้า',
   documents:  'เอกสาร',
   reports:    'รายงาน',
   'it-access':'Access Control',
+  chat:       'แชท',
   settings:   'ตั้งค่าระบบ',
+  profile:    'โปรไฟล์ของฉัน',
 }
 
 export const ROLE_LABELS: Record<Role, string> = {
-  admin:      'ผู้ดูแลระบบ IT',
-  accountant: 'ผู้จัดการฝ่ายบัญชี',
-  recorder:   'พนักงานกรอกข้อมูล',
-  viewer:     'ผู้ตรวจสอบ',
+  super_admin:          'สิทธิ์บริหารสูงสุด',
+  it_manager:           'ผู้จัดการด้านไอที',
+  it_support:           'ไอทีซัพพอร์ต',
+  accounting_manager:   'ผู้จัดการฝ่ายบัญชี',
+  accountant:           'ฝ่ายบัญชี',
+  hr_manager:           'ผู้จัดการฝ่ายบุคคล',
+  hr:                   'ฝ่ายบุคคล',
+  warehouse_manager:    'ผู้จัดการคลังสินค้า',
+  warehouse_staff:      'ฝ่ายจัดการคลังสินค้า',
+  production_manager:   'ผู้จัดการฝ่ายผลิต',
+  production_staff:     'ฝ่ายผลิต',
+  marketing_manager:    'ผู้จัดการฝ่ายการตลาด',
+  marketing_staff:      'ฝ่ายการตลาด',
+  engineering_manager:  'ผู้จัดการฝ่ายวิศวกรรม',
+  engineering_staff:    'ฝ่ายวิศวกรรม',
+  general_user:         'ผู้ใช้ทั่วไป',
+  admin:                'ผู้ดูแลระบบ (legacy)',
+  recorder:             'ผู้บันทึกข้อมูล (legacy)',
+  viewer:               'ผู้ตรวจสอบ (legacy)',
 }
 
 export const ROLE_COLORS: Record<Role, { bg: string; color: string }> = {
-  admin:      { bg: '#fee2e2', color: '#dc2626' },
-  accountant: { bg: '#dbeafe', color: '#2563eb' },
-  recorder:   { bg: '#d1fae5', color: '#059669' },
-  viewer:     { bg: '#f1f5f9', color: '#64748b' },
+  super_admin:          { bg: '#fee2e2', color: '#dc2626' },
+  it_manager:           { bg: '#fce7f3', color: '#be185d' },
+  it_support:           { bg: '#fce7f3', color: '#db2777' },
+  accounting_manager:   { bg: '#dbeafe', color: '#1d4ed8' },
+  accountant:           { bg: '#eff6ff', color: '#2563eb' },
+  hr_manager:           { bg: '#fef9c3', color: '#a16207' },
+  hr:                   { bg: '#fefce8', color: '#ca8a04' },
+  warehouse_manager:    { bg: '#d1fae5', color: '#047857' },
+  warehouse_staff:      { bg: '#ecfdf5', color: '#059669' },
+  production_manager:   { bg: '#ede9fe', color: '#6d28d9' },
+  production_staff:     { bg: '#f5f3ff', color: '#7c3aed' },
+  marketing_manager:    { bg: '#ffedd5', color: '#c2410c' },
+  marketing_staff:      { bg: '#fff7ed', color: '#ea580c' },
+  engineering_manager:  { bg: '#cffafe', color: '#0e7490' },
+  engineering_staff:    { bg: '#ecfeff', color: '#0891b2' },
+  general_user:         { bg: '#f1f5f9', color: '#64748b' },
+  admin:                { bg: '#fee2e2', color: '#dc2626' },
+  recorder:             { bg: '#d1fae5', color: '#059669' },
+  viewer:               { bg: '#f1f5f9', color: '#64748b' },
+}
+
+// ─── Dynamic Categories ──────────────────────────────────────────
+export type CalcRole = 'qty' | 'price' | 'addend' | 'fixed' | 'note' | 'none'
+export type FieldType = 'number' | 'text' | 'select'
+
+export interface CategoryField {
+  fieldId: string
+  label: string
+  type: FieldType
+  unit: string
+  placeholder: string
+  required: boolean
+  calcRole: CalcRole
+  options: string[]
+}
+
+export interface ExpenseCategory {
+  id: string
+  name: string
+  color: string
+  icon: string
+  formula: string
+  fields: CategoryField[]
+  allowedRoles: string[]
+  allowedUsers: string[]
+  order: number
+  isActive: boolean
+  createdAt: string
+  createdBy: string
+}
+
+export interface CategoriesResponse {
+  success: boolean
+  categories: ExpenseCategory[]
+}
+
+export interface CategorySummary {
+  catId: string
+  drafts: number
+  records: number
+  budgets: number
+}
+
+// Dynamic analysis response
+export interface DynamicAnalysisEntry {
+  catKey: string
+  total: number
+  label: string
+  color: string
+  icon: string
+  budget: number
+}
+
+export interface DynamicAnalysisResponse {
+  success: boolean
+  monthYear: string
+  categories: DynamicAnalysisEntry[]
+  overallTotal: number
+}
+
+// ─── Expense Draft / Approval ─────────────────────────────────────
+export type DraftStatus = 'pending' | 'approved' | 'rejected'
+
+export interface ExpenseDraft {
+  id: string
+  recorder: string
+  recorderName: string
+  recorderLineId: string
+  date: string
+  category: string
+  catKey: CatKey
+  rows: unknown[]
+  total: number
+  detail: string
+  note: string
+  status: DraftStatus
+  submittedAt: string
+  reviewedBy?: string
+  reviewedAt?: string
+  rejectReason?: string
+  approvedExpenseIds?: string[]
+}
+
+export interface ExpenseRecord {
+  id: string
+  date: string
+  category: string
+  catKey: CatKey
+  amount: number
+  recorder: string
+  recorderName: string
+  recorderLineId: string
+  detail: string
+  note: string
+  approvedBy?: string
+  approverName?: string
+  approverLineId?: string
+  approvedAt?: string
+  draftId?: string
+}
+
+export interface DraftsResponse {
+  success: boolean
+  drafts: ExpenseDraft[]
+  isManager: boolean
+}
+
+export interface ExpenseHistoryResponse {
+  success: boolean
+  expenses: ExpenseRecord[]
+  total: number
+  page: number
+  perPage: number
+  totalPages: number
 }

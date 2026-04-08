@@ -10,12 +10,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from passlib.context import CryptContext
+from app.services.auth_service import hash_password
 
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://planeat:planeat123@localhost:27017/planeat?authSource=admin")
 DB_NAME = "planeat"
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 INITIAL_USERS = [
     {
@@ -58,15 +56,16 @@ async def main():
         if existing:
             print(f"[SKIP] {u['username']} already exists")
             continue
+
         doc = {
             "username": u["username"],
-            "password_hash": pwd_context.hash(u["password"]),
+            "password_hash": hash_password(u["password"]),
             "name": u["name"],
             "role": u["role"],
             "permissions": u["permissions"],
         }
         await db.users.insert_one(doc)
-        print(f"[OK]   Created user: {u['username']} / {u['password']} (role: {u['role']})")
+        print(f"[OK]   Created user: {u['username']} (role: {u['role']})")
 
     client.close()
     print("\nDone! รหัสผ่านเริ่มต้น — กรุณาเปลี่ยนรหัสผ่านหลัง login ครั้งแรก")
