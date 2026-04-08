@@ -24,14 +24,20 @@ type Tab = 'overview' | 'daily' | 'pending' | 'budget' | 'history' | 'categories
 const MANAGER_ROLES = ['accounting_manager', 'super_admin', 'it_manager', 'admin']
 
 export default function ExpenseControlPage() {
-  const user = getSession()
   const searchParams = useSearchParams()
   const initialTab = (searchParams.get('tab') as Tab) || 'overview'
   const [tab, setTab] = useState<Tab>(initialTab)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [catVersion, setCatVersion] = useState(0)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
-  const isManager = MANAGER_ROLES.includes(user?.role || '')
+  const [user, setUser] = useState<ReturnType<typeof getSession>>(null)
+  const [isManager, setIsManager] = useState(false)
+
+  useEffect(() => {
+    const u = getSession()
+    setUser(u)
+    setIsManager(MANAGER_ROLES.includes(u?.role || ''))
+  }, [])
 
   function flash(type: 'ok' | 'err', text: string) {
     setMsg({ type, text })
@@ -68,8 +74,8 @@ export default function ExpenseControlPage() {
       )}
 
       {/* Header / Tabs */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-5">
-        <div style={{ padding: '0 4px', display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9', gap: 0, overflowX: 'auto' }}>
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-5" style={{ borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ padding: '0 4px', display: 'flex', alignItems: 'center', gap: 0 }}>
           {/* ชื่อระบบ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', borderRight: '1px solid #f1f5f9', flexShrink: 0 }}>
             <span className="material-icons-round text-blue-500" style={{ fontSize: 20 }}>account_balance</span>
@@ -77,14 +83,16 @@ export default function ExpenseControlPage() {
           </div>
 
           {/* แท็บหลัก */}
-          {tabBtn('overview', 'ภาพรวม',       'bar_chart')}
-          {tabBtn('daily',    'บันทึกรายวัน',  'edit_note')}
-          {tabBtn('pending',  'รอดำเนินการ',   'pending_actions')}
-          {tabBtn('history',  'ประวัติ',        'history')}
+          <div style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', flex: 1 }}>
+            {tabBtn('overview', 'ภาพรวม',       'bar_chart')}
+            {tabBtn('daily',    'บันทึกรายวัน',  'edit_note')}
+            {tabBtn('pending',  'รอดำเนินการ',   'pending_actions')}
+            {tabBtn('history',  'ประวัติ',        'history')}
+          </div>
 
-          {/* ปุ่ม ⚙️ ตั้งค่า (Manager only) */}
+          {/* ปุ่ม ⚙️ ตั้งค่า (Manager only) — อยู่นอก overflow container */}
           {isManager && (
-            <div style={{ marginLeft: 'auto', position: 'relative', flexShrink: 0, paddingRight: 8 }}>
+            <div style={{ position: 'relative', flexShrink: 0, paddingRight: 8 }}>
               <button
                 onClick={() => setShowSettingsMenu(v => !v)}
                 style={{
@@ -100,7 +108,7 @@ export default function ExpenseControlPage() {
               </button>
 
               {showSettingsMenu && (
-                <div style={{ position: 'absolute', right: 8, top: '110%', background: 'white', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', border: '1px solid #e2e8f0', zIndex: 100, minWidth: 160, overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', right: 8, top: 'calc(100% + 4px)', background: 'white', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', border: '1px solid #e2e8f0', zIndex: 200, minWidth: 160, overflow: 'hidden' }}>
                   {MANAGER_TABS.map(m => (
                     <button key={m.t}
                       onClick={() => { setTab(m.t); setShowSettingsMenu(false) }}
