@@ -45,6 +45,13 @@ async def my_categories(current: dict = Depends(get_current_user)):
     return {"success": True, "categories": cats}
 
 
+@router.get("/public")
+async def public_categories(username: str = Query("")):
+    """สำหรับหน้า standalone ค้นหาหมวดตามชื่อที่พิมพ์"""
+    cats = await get_categories_for_user(username, "")
+    return {"success": True, "categories": cats}
+
+
 @router.get("/{cat_id}/summary")
 async def category_summary(cat_id: str, current: dict = Depends(get_current_user)):
     if current.get("role") not in MANAGER_ROLES:

@@ -2,8 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# curl สำหรับ healthcheck + ลบ cache
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+# curl สำหรับ healthcheck + ฟอนต์ไทย (Garuda) สำหรับ PDF
+RUN apt-get update && apt-get install -y --no-install-recommends curl fonts-thai-tlwg && \
     rm -rf /var/lib/apt/lists/*
 
 # non-root user

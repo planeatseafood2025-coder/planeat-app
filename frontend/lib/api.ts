@@ -36,6 +36,7 @@ async function request<T>(
   const res = await fetch(url, {
     method,
     headers,
+    cache: 'no-store',
     body: body ? JSON.stringify(body) : undefined,
   })
 
@@ -51,17 +52,24 @@ async function request<T>(
 export const authApi = {
   login: (username: string, password: string) =>
     request('POST', '/api/auth/login', { username, password }),
+  requestRegisterOtp: (email: string, firstName: string) =>
+    request('POST', '/api/auth/request-register-otp', { email, firstName }),
+  requestLineOtp: (email: string, firstName: string) =>
+    request('POST', '/api/auth/request-line-otp', { email, firstName }),
+  checkLineSession: (sessionId: string) =>
+    request<{ status: string; lineUid: string }>('GET', `/api/auth/line-session/${sessionId}`),
   register: (payload: {
     firstName: string; lastName: string; nickname?: string
-    phone: string; lineId?: string; jobTitle?: string
+    phone: string; email: string; lineId?: string; jobTitle?: string
     username: string; password: string; confirmPassword: string
+    otp?: string; sessionId?: string
   }) => request('POST', '/api/auth/register', payload),
-  forgotPassword: (phone: string) =>
-    request('POST', '/api/auth/forgot-password', { phone }),
-  verifyOtp: (phone: string, otp: string) =>
-    request('POST', '/api/auth/verify-otp', { phone, otp }),
-  resetPassword: (phone: string, otp: string, newPassword: string) =>
-    request('POST', '/api/auth/reset-password', { phone, otp, newPassword }),
+  forgotPassword: (username: string) =>
+    request('POST', '/api/auth/forgot-password', { username }),
+  verifyOtp: (username: string, otp: string) =>
+    request('POST', '/api/auth/verify-otp', { username, otp }),
+  resetPassword: (username: string, otp: string, newPassword: string) =>
+    request('POST', '/api/auth/reset-password', { username, otp, newPassword }),
 }
 
 // ─── Expenses ────────────────────────────────────────────────────
@@ -70,6 +78,10 @@ export const expenseApi = {
     request('GET', '/api/expenses', undefined, monthYear ? { monthYear } : {}),
   saveExpense: (payload: unknown) =>
     request('POST', '/api/expenses', payload),
+  editExpense: (id: string, payload: { date?: string; amount?: number; detail?: string; note?: string }) =>
+    request('PUT', `/api/expenses/${id}`, payload),
+  deleteExpense: (id: string) =>
+    request('DELETE', `/api/expenses/${id}`),
   fixData: () =>
     request('POST', '/api/admin/fix-data'),
 }
@@ -78,6 +90,8 @@ export const expenseApi = {
 export const budgetApi = {
   getBudget: (monthYear?: string) =>
     request('GET', '/api/budget', undefined, monthYear ? { monthYear } : {}),
+  getYearly: (year?: number) =>
+    request('GET', '/api/budget/yearly', undefined, year ? { year: String(year) } : {}),
   setBudget: (payload: unknown) =>
     request('POST', '/api/budget', payload),
 }
@@ -176,6 +190,8 @@ export const notificationApi = {
   markRead: (id: string) => request('PUT', `/api/notifications/${id}/read`),
   markAllRead: () => request('PUT', '/api/notifications/read-all'),
   delete: (id: string) => request('DELETE', `/api/notifications/${id}`),
+  sendLineNotify: (message: string, token: string) =>
+    request('POST', '/api/notifications/line-notify', { message, token }),
 }
 
 // ─── Expense Drafts ──────────────────────────────────────────────
@@ -203,6 +219,7 @@ export const expenseDraftApi = {
 export const categoryApi = {
   getAll: () => request('GET', '/api/categories'),
   getMine: () => request('GET', '/api/categories/mine'),
+  getPublic: (username: string) => request('GET', '/api/categories/public', undefined, { username }),
   getSummary: (id: string) => request('GET', `/api/categories/${id}/summary`),
   searchUsers: (q: string) => request('GET', '/api/categories/users/search', undefined, { q }),
   create: (payload: unknown) => request('POST', '/api/categories', payload),
@@ -214,10 +231,115 @@ export const categoryApi = {
 export const dynamicDraftApi = {
   submit: (payload: unknown) =>
     request('POST', '/api/expenses/draft/dynamic', payload),
+  submitPublic: (payload: unknown) =>
+    request('POST', '/api/expenses/draft/public', payload),
   approve: (id: string) =>
     request('PUT', `/api/expenses/drafts/${id}/approve/dynamic`),
   getAnalysis: (monthYear?: string) =>
     request('GET', '/api/analysis/dynamic', undefined, monthYear ? { monthYear } : {}),
+}
+
+// ─── Settings ────────────────────────────────────────────────────
+export const settingsApi = {
+  get: () => request('GET', '/api/settings'),
+  update: (payload: {
+    smtpEmail?: string; smtpPassword?: string; smtpServer?: string; smtpPort?: number
+    lineOaConfigs?: Array<{
+      id: string; category: string; name: string
+      token: string; channelId: string; channelSecret: string
+      mode: 'receive' | 'send' | 'both'; targetId?: string
+    }>
+    budgetReminderEnabled?: boolean
+    budgetReminderMessageDay30?: string
+    budgetReminderMessageDay4?: string
+  }) => request('PUT', '/api/settings', payload),
+}
+
+// ─── Sales Pipeline & CRM Activities ─────────────────────────────
+export const salesApi = {
+  getDeals: (params?: Record<string, any>) => request('GET', '/api/deals', undefined, params),
+  createDeal: (payload: any) => request('POST', '/api/deals', payload),
+  updateDeal: (id: string, payload: any) => request('PUT', `/api/deals/${id}`, payload),
+  deleteDeal: (id: string) => request('DELETE', `/api/deals/${id}`),
+}
+
+export const activityApi = {
+  getActivities: (params?: Record<string, any>) => request('GET', '/api/activities', undefined, params),
+  createActivity: (payload: any) => request('POST', '/api/activities', payload),
+  updateActivity: (id: string, payload: any) => request('PUT', `/api/activities/${id}`, payload),
+  deleteActivity: (id: string) => request('DELETE', `/api/activities/${id}`),
+}
+
+// ─── Reports ─────────────────────────────────────────────────────
+export const reportApi = {
+  generate: (payload: {
+    catId: string; periodType: 'daily' | 'weekly' | 'monthly'
+    sendLine?: boolean; lineOaConfigId?: string; targetId?: string
+  }) => request('POST', '/api/reports/generate', payload),
+  download: (reportId: string) =>
+    `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/reports/download/${reportId}`,
+}
+
+// ─── Customer Segments ────────────────────────────────────────────
+export const segmentApi = {
+  getAll: (wsId: string) =>
+    request('GET', `/api/crm-workspaces/${wsId}/segments`),
+  create: (wsId: string, payload: unknown) =>
+    request('POST', `/api/crm-workspaces/${wsId}/segments`, payload),
+  update: (wsId: string, id: string, payload: unknown) =>
+    request('PUT', `/api/crm-workspaces/${wsId}/segments/${id}`, payload),
+  delete: (wsId: string, id: string) =>
+    request('DELETE', `/api/crm-workspaces/${wsId}/segments/${id}`),
+}
+
+// ─── CRM Workspaces ───────────────────────────────────────────────
+export const workspaceApi = {
+  getAll: () => request('GET', '/api/crm-workspaces'),
+  get: (id: string) => request('GET', `/api/crm-workspaces/${id}`),
+  create: (payload: unknown) => request('POST', '/api/crm-workspaces', payload),
+  update: (id: string, payload: unknown) => request('PUT', `/api/crm-workspaces/${id}`, payload),
+  delete: (id: string) => request('DELETE', `/api/crm-workspaces/${id}`),
+}
+
+// ─── Customers (CRM — workspace-scoped) ──────────────────────────
+export const customerApi = {
+  getAll: (wsId: string, params?: { q?: string; type?: string; tag?: string; status?: string; segmentId?: string; page?: number; perPage?: number }) => {
+    const p: Record<string, string> = {}
+    if (params?.q) p.q = params.q
+    if (params?.type) p.type = params.type
+    if (params?.tag) p.tag = params.tag
+    if (params?.status !== undefined) p.status = params.status
+    if (params?.segmentId) p.segmentId = params.segmentId
+    if (params?.page) p.page = String(params.page)
+    if (params?.perPage) p.perPage = String(params.perPage)
+    return request('GET', `/api/crm-workspaces/${wsId}/customers`, undefined, p)
+  },
+  get: (wsId: string, id: string) =>
+    request('GET', `/api/crm-workspaces/${wsId}/customers/${id}`),
+  create: (wsId: string, payload: unknown) =>
+    request('POST', `/api/crm-workspaces/${wsId}/customers`, payload),
+  update: (wsId: string, id: string, payload: unknown) =>
+    request('PUT', `/api/crm-workspaces/${wsId}/customers/${id}`, payload),
+  delete: (wsId: string, id: string) =>
+    request('DELETE', `/api/crm-workspaces/${wsId}/customers/${id}`),
+  getTags: (wsId: string) =>
+    request('GET', `/api/crm-workspaces/${wsId}/customers/tags`),
+  addTag: (wsId: string, id: string, tag: string) =>
+    request('POST', `/api/crm-workspaces/${wsId}/customers/${id}/tags`, { tag }),
+  removeTag: (wsId: string, id: string, tag: string) =>
+    request('DELETE', `/api/crm-workspaces/${wsId}/customers/${id}/tags/${tag}`),
+  exportCsvUrl: (wsId: string, params?: { type?: string; tag?: string; status?: string }) => {
+    const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+    const p = new URLSearchParams()
+    if (params?.type) p.set('type', params.type)
+    if (params?.tag) p.set('tag', params.tag)
+    if (params?.status) p.set('status', params.status)
+    const token = typeof window !== 'undefined' ? (() => {
+      try { const u = JSON.parse(sessionStorage.getItem('planeat_user') || '{}'); return u.token || '' } catch { return '' }
+    })() : ''
+    if (token) p.set('token', token)
+    return `${BASE_URL}/api/crm-workspaces/${wsId}/customers/export/csv?${p.toString()}`
+  },
 }
 
 // ─── Health ──────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ class UpdateProfileRequest(BaseModel):
     nickname: Optional[str] = None
     phone: Optional[str] = None
     lineId: Optional[str] = None
+    lineNotifyToken: Optional[str] = None
     jobTitle: Optional[str] = None
 
 

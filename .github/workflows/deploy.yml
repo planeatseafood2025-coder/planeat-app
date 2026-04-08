@@ -1,0 +1,48 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main        # deploy อัตโนมัติเมื่อ push ขึ้น main
+  workflow_dispatch: # หรือกด deploy เองใน GitHub UI ได้
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      # ─── 1. ดึงโค้ดล่าสุด ──────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ─── 2. SSH เข้า VPS แล้ว pull + deploy ───────────────
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     22
+          script: |
+            cd /opt/planeat-app
+
+            echo ">>> Pulling latest code..."
+            git pull origin main
+
+            echo ">>> Stopping containers..."
+            docker compose down
+
+            echo ">>> Removing old images..."
+            docker rmi planeat-app-frontend planeat-app-backend -f 2>/dev/null || true
+
+            echo ">>> Building and starting..."
+            docker compose up -d --build
+
+            echo ">>> Waiting for health..."
+            sleep 15
+
+            echo ">>> Status:"
+            docker compose ps
+
+            echo ">>> Deploy complete!"

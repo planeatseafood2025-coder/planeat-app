@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { getSession, saveSession } from '@/lib/auth'
 import { authApi } from '@/lib/api'
 import type { LoginResponse } from '@/types'
+import PlaNeatLogo from '@/components/PlaNeatLogo'
+import WaterCanvas from '@/components/WaterCanvas'
 
 const REMEMBER_KEY = 'planeat_remember'
 
@@ -20,7 +22,7 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false)
 
   // Forgot password state
-  const [fpPhone, setFpPhone] = useState('')
+  const [fpFirstName, setFpFirstName] = useState('')
   const [fpOtp, setFpOtp] = useState('')
   const [fpNew, setFpNew] = useState('')
   const [fpConfirm, setFpConfirm] = useState('')
@@ -32,6 +34,7 @@ export default function LoginPage() {
   const [success, setSuccess] = useState('')
   const router = useRouter()
   const userRef = useRef<HTMLInputElement>(null)
+
 
   useEffect(() => {
     const s = getSession()
@@ -71,16 +74,16 @@ export default function LoginPage() {
   }
 
   async function handleSendOtp() {
-    if (!fpPhone.trim()) { setError('กรุณากรอกเบอร์โทรศัพท์'); return }
+    if (!fpFirstName.trim()) { setError('กรุณากรอกชื่อผู้ใช้งาน หรือ ชื่อจริง'); return }
     setError(''); setLoading(true)
     try {
-      const res = await authApi.forgotPassword(fpPhone.trim()) as { success: boolean; dev_otp?: string; message?: string }
+      const res = await authApi.forgotPassword(fpFirstName.trim()) as { success: boolean; dev_otp?: string; message?: string }
       if (res.success) {
         setDevOtp(res.dev_otp || '')
         setStep('forgot_otp')
-        setSuccess('ส่ง OTP แล้ว (ดู console สำหรับ DEV mode)')
+        setSuccess('ระบบส่งรหัส OTP ไปยังอีเมลของท่านแล้ว')
       } else {
-        setError(res.message || 'ไม่พบเบอร์นี้ในระบบ')
+        setError(res.message || 'ไม่พบการลงทะเบียนนี้')
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด')
@@ -91,7 +94,7 @@ export default function LoginPage() {
     if (!fpOtp.trim()) { setError('กรุณากรอก OTP'); return }
     setError(''); setLoading(true)
     try {
-      const res = await authApi.verifyOtp(fpPhone.trim(), fpOtp.trim()) as { success: boolean; message?: string }
+      const res = await authApi.verifyOtp(fpFirstName.trim(), fpOtp.trim()) as { success: boolean; message?: string }
       if (res.success) { setStep('forgot_reset'); setSuccess('ยืนยัน OTP สำเร็จ') }
       else setError(res.message || 'OTP ไม่ถูกต้องหรือหมดอายุ')
     } catch (e: unknown) {
@@ -105,7 +108,7 @@ export default function LoginPage() {
     if (fpNew.length < 6) { setError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'); return }
     setError(''); setLoading(true)
     try {
-      const res = await authApi.resetPassword(fpPhone.trim(), fpOtp.trim(), fpNew) as { success: boolean; message?: string }
+      const res = await authApi.resetPassword(fpFirstName.trim(), fpOtp.trim(), fpNew) as { success: boolean; message?: string }
       if (res.success) {
         setSuccess('เปลี่ยนรหัสผ่านสำเร็จ! กรุณาเข้าสู่ระบบ')
         setTimeout(() => { setStep('login'); setSuccess('') }, 2000)
@@ -118,24 +121,20 @@ export default function LoginPage() {
   }
 
   function resetForgot() {
-    setStep('login'); setFpPhone(''); setFpOtp(''); setFpNew(''); setFpConfirm('')
+    setStep('login'); setFpFirstName(''); setFpOtp(''); setFpNew(''); setFpConfirm('')
     setError(''); setSuccess(''); setDevOtp('')
   }
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center"
-      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0ea5e9 100%)' }}
+      className="min-h-screen flex items-center justify-center relative overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%)' }}
     >
-      <div className="w-full max-w-sm mx-auto px-6 text-center">
+      <div className="w-full max-w-sm mx-auto px-6 text-center relative z-10">
         {/* Logo */}
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5"
-          style={{ background: 'rgba(255,255,255,0.12)', border: '2px solid rgba(255,255,255,0.2)' }}
-        >
-          <span className="material-icons-round text-white" style={{ fontSize: 32 }}>corporate_fare</span>
+        <div className="flex justify-center mb-5">
+          <PlaNeatLogo size="lg" showText={true} />
         </div>
-        <h1 className="text-2xl font-bold text-white mb-1">PlaNeat Support</h1>
         <p className="text-xs mb-8" style={{ color: 'rgba(255,255,255,0.5)' }}>ระบบจัดการสำนักงาน</p>
 
         {/* Card */}
@@ -214,12 +213,12 @@ export default function LoginPage() {
                 </button>
                 <h2 className="text-base font-bold text-slate-800">ลืมรหัสผ่าน</h2>
               </div>
-              <p className="text-sm text-slate-500 mb-4">กรอกเบอร์โทรที่ลงทะเบียนไว้ ระบบจะส่ง OTP ให้</p>
+              <p className="text-sm text-slate-500 mb-4">กรอกข้อมูลยืนยันตัวตน ระบบจะส่งรหัส OTP ไปยัง<strong className="text-slate-700">อีเมล</strong>ของคุณเพื่อตั้งใหม่</p>
               {error && <div className="mb-4 p-3 rounded-lg text-sm text-red-700" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>{error}</div>}
               <div className="mb-5">
-                <label className="form-label">เบอร์โทรศัพท์</label>
-                <input type="tel" className="form-input" placeholder="0812345678"
-                  value={fpPhone} onChange={e => setFpPhone(e.target.value)}
+                <label className="form-label">ชื่อผู้ใช้งาน หรือ ชื่อจริง <span className="text-xs font-normal text-slate-400 border-none bg-transparent">(อ้างอิงตอนสมัคร)</span></label>
+                <input type="text" className="form-input" placeholder="เช่น admin หรือ สมชาย"
+                  value={fpFirstName} onChange={e => setFpFirstName(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSendOtp()} disabled={loading} />
               </div>
               <button className="btn-primary w-full justify-center" onClick={handleSendOtp} disabled={loading}>

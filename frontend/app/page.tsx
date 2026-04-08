@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getSession } from '@/lib/auth'
+import PlaNeatLogo from '@/components/PlaNeatLogo'
 
 export default function LandingPage() {
   const router = useRouter()
@@ -13,16 +14,11 @@ export default function LandingPage() {
   }, [router])
 
   return (
-    <div className="landing-page">
-      <div className="w-full max-w-sm mx-auto px-6 text-center">
+    <div className="landing-page" style={{ position: 'relative', overflow: 'hidden', background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%)' }}>
+      <div className="w-full max-w-sm mx-auto px-6 text-center" style={{ position: 'relative', zIndex: 1 }}>
         {/* Logo */}
-        <div
-          className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6"
-          style={{ background: 'rgba(255,255,255,0.12)', border: '2px solid rgba(255,255,255,0.2)' }}
-        >
-          <span className="material-icons-round text-white" style={{ fontSize: 40 }}>
-            corporate_fare
-          </span>
+        <div className="flex justify-center mb-6">
+          <PlaNeatLogo size="lg" showText={false} />
         </div>
 
         <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">PlaNeat Support</h1>

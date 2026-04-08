@@ -12,10 +12,10 @@ async def get_contacts(current_username: str) -> dict:
     db = get_db()
     cursor = db.users.find(
         {"username": {"$ne": current_username}, "status": {"$ne": "suspended"}},
-        {"password_hash": 0, "_id": 0, "username": 1, "name": 1, "firstName": 1,
-         "lastName": 1, "nickname": 1, "role": 1, "jobTitle": 1, "profilePhoto": 1}
+        {"password_hash": 0, "otp_secret": 0, "otp_backup_codes": 0}
     ).sort("name", 1)
-    contacts = await cursor.to_list(length=500)
+    raw = await cursor.to_list(length=500)
+    contacts = [{k: str(v) if k == "_id" else v for k, v in c.items()} for c in raw]
     return {"success": True, "contacts": contacts}
 
 

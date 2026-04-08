@@ -1,23 +1,25 @@
 'use client'
+import React from 'react'
 import dynamic from 'next/dynamic'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { expenseDraftApi, categoryApi, dynamicDraftApi, budgetApi, analysisApi, expenseApi } from '@/lib/api'
-import { fetchWithCache, invalidateCache } from '@/lib/cache'
+import { expenseDraftApi, categoryApi, dynamicDraftApi, budgetApi, analysisApi, expenseApi, notificationApi, settingsApi, reportApi } from '@/lib/api'
+import { invalidateCache } from '@/lib/cache'
 import { fmt, todayIso, isoToThai, todayMonth, monthInputToApi } from '@/lib/utils'
 import type {
   ExpenseDraft, ExpenseRecord, DraftsResponse, ExpenseHistoryResponse,
-  ExpenseCategory, CategoriesResponse, CategorySummary, DynamicAnalysisResponse,
-  DynamicAnalysisEntry, BudgetResponse, CatKey,
+  ExpenseCategory, CategoriesResponse, CategorySummary,
+  BudgetResponse, CatKey,
   AnalysisResponse, ExpensesResponse, Expense,
+  ReportScheduleItem,
 } from '@/types'
-import { CAT_STYLE, CHART_COLORS, ROLE_LABELS } from '@/types'
+import { CAT_STYLE, ROLE_LABELS } from '@/types'
 
 const DoughnutChart = dynamic(() => import('@/components/charts/DoughnutChart'), { ssr: false })
 const TrendChart    = dynamic(() => import('@/components/charts/TrendChart'),    { ssr: false })
 
-type Tab = 'overview' | 'daily' | 'pending' | 'budget' | 'history' | 'categories'
+type Tab = 'overview' | 'daily' | 'pending' | 'budget' | 'history' | 'categories' | 'executive'
 
 const MANAGER_ROLES = ['accounting_manager', 'super_admin', 'it_manager', 'admin']
 
@@ -28,6 +30,7 @@ export default function ExpenseControlPage() {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [catVersion, setCatVersion] = useState(0)
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
   const isManager = MANAGER_ROLES.includes(user?.role || '')
 
   function flash(type: 'ok' | 'err', text: string) {
@@ -36,7 +39,7 @@ export default function ExpenseControlPage() {
   }
 
   const tabBtn = (t: Tab, label: string, icon: string) => (
-    <button key={t} onClick={() => setTab(t)} style={{
+    <button key={t} onClick={() => { setTab(t); setShowSettingsMenu(false) }} style={{
       padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
       borderBottom: tab === t ? '2px solid #2563eb' : '2px solid transparent',
       color: tab === t ? '#2563eb' : '#64748b',
@@ -47,6 +50,13 @@ export default function ExpenseControlPage() {
       {label}
     </button>
   )
+
+  const MANAGER_TABS: { t: Tab; label: string; icon: string }[] = [
+    { t: 'budget',     label: 'งบประมาณ',    icon: 'savings' },
+    { t: 'categories', label: 'จัดการหมวด',  icon: 'category' },
+    { t: 'executive',  label: 'บริหารงบปี',   icon: 'leaderboard' },
+  ]
+  const activeManagerTab = MANAGER_TABS.find(m => m.t === tab)
 
   return (
     <div className="page-section active">
@@ -60,33 +70,75 @@ export default function ExpenseControlPage() {
       {/* Header / Tabs */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-5">
         <div style={{ padding: '0 4px', display: 'flex', alignItems: 'center', borderBottom: '1px solid #f1f5f9', gap: 0, overflowX: 'auto' }}>
+          {/* ชื่อระบบ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', borderRight: '1px solid #f1f5f9', flexShrink: 0 }}>
             <span className="material-icons-round text-blue-500" style={{ fontSize: 20 }}>account_balance</span>
             <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>ระบบควบคุมค่าใช้จ่าย</span>
           </div>
-          {tabBtn('overview',    'ภาพรวม',          'bar_chart')}
-          {tabBtn('daily',       'บันทึกรายวัน',     'edit_note')}
-          {tabBtn('pending',     'รอดำเนินการ',      'pending_actions')}
-          {tabBtn('budget',      'งบประมาณ',         'savings')}
-          {tabBtn('history',     'ประวัติ',           'history')}
-          {isManager && tabBtn('categories', 'จัดการหมวด', 'category')}
+
+          {/* แท็บหลัก */}
+          {tabBtn('overview', 'ภาพรวม',       'bar_chart')}
+          {tabBtn('daily',    'บันทึกรายวัน',  'edit_note')}
+          {tabBtn('pending',  'รอดำเนินการ',   'pending_actions')}
+          {tabBtn('history',  'ประวัติ',        'history')}
+
+          {/* ปุ่ม ⚙️ ตั้งค่า (Manager only) */}
+          {isManager && (
+            <div style={{ marginLeft: 'auto', position: 'relative', flexShrink: 0, paddingRight: 8 }}>
+              <button
+                onClick={() => setShowSettingsMenu(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  background: activeManagerTab ? '#eff6ff' : '#f8fafc',
+                  color: activeManagerTab ? '#2563eb' : '#64748b',
+                  transition: 'all 0.15s',
+                }}>
+                <span className="material-icons-round" style={{ fontSize: 15 }}>settings</span>
+                {activeManagerTab ? activeManagerTab.label : 'ตั้งค่า'}
+                <span className="material-icons-round" style={{ fontSize: 14 }}>{showSettingsMenu ? 'expand_less' : 'expand_more'}</span>
+              </button>
+
+              {showSettingsMenu && (
+                <div style={{ position: 'absolute', right: 8, top: '110%', background: 'white', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', border: '1px solid #e2e8f0', zIndex: 100, minWidth: 160, overflow: 'hidden' }}>
+                  {MANAGER_TABS.map(m => (
+                    <button key={m.t}
+                      onClick={() => { setTab(m.t); setShowSettingsMenu(false) }}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '10px 14px', border: 'none', cursor: 'pointer', fontSize: 13,
+                        background: tab === m.t ? '#eff6ff' : 'white',
+                        color: tab === m.t ? '#2563eb' : '#374151',
+                        fontWeight: tab === m.t ? 600 : 400,
+                        textAlign: 'left',
+                      }}>
+                      <span className="material-icons-round" style={{ fontSize: 16 }}>{m.icon}</span>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {tab === 'overview'    && <OverviewTab user={user} onGoToCategories={() => setTab('categories')} />}
+      {tab === 'overview'    && <OverviewTab user={user} onGoToCategories={() => setTab('categories')} onGoToExecutive={() => setTab('executive')} />}
       {tab === 'daily'       && <DailyTab user={user} flash={flash} catVersion={catVersion} />}
       {tab === 'pending'     && <PendingTab user={user} flash={flash} />}
       {tab === 'budget'      && <BudgetTab user={user} flash={flash} />}
       {tab === 'history'     && <HistoryTab />}
       {tab === 'categories'  && isManager && <CategoryManagerTab flash={flash} onCatChange={() => setCatVersion(v => v + 1)} />}
+      {tab === 'executive'   && isManager && <ExecutiveTab />}
     </div>
   )
 }
 
 // ─── Overview Tab (Full Analytics) ───────────────────────────────────────────
-function OverviewTab({ user, onGoToCategories }: {
+function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
   user: ReturnType<typeof getSession>
   onGoToCategories: () => void
+  onGoToExecutive: () => void
 }) {
   const isManager = MANAGER_ROLES.includes(user?.role || '')
   const [monthFilter, setMonthFilter] = useState(todayMonth())
@@ -437,6 +489,25 @@ function OverviewTab({ user, onGoToCategories }: {
               </div>
             )}
           </div>
+
+          {/* ── Executive shortcut ─────────────────────────────────────── */}
+          {isManager && (
+            <button onClick={onGoToExecutive}
+              style={{ marginTop: 16, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '14px 20px', borderRadius: 12, border: '1px solid #e2e8f0', background: '#fff',
+                cursor: 'pointer', transition: 'all 0.15s', textAlign: 'left' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#2563eb' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fff'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span className="material-icons-round" style={{ fontSize: 20, color: '#2563eb' }}>leaderboard</span>
+                <div>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1e293b' }}>ดูภาพรวมการบริหารงบประมาณทั้งปี</p>
+                  <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>Budget vs Actual รายเดือน · สำหรับผู้บริหาร</p>
+                </div>
+              </div>
+              <span className="material-icons-round" style={{ fontSize: 18, color: '#94a3b8' }}>arrow_forward</span>
+            </button>
+          )}
         </>
       )}
     </div>
@@ -578,9 +649,24 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
             <input type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} />
           </div>
         </div>
-        <div style={{ marginTop: 12, padding: '10px 14px', background: '#f0f9ff', borderRadius: 8, fontSize: 12, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="material-icons-round" style={{ fontSize: 16 }}>info</span>
-          รายการจะถูกส่งให้ผู้จัดการฝ่ายบัญชีตรวจสอบก่อนบันทึกจริง
+        <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ padding: '10px 14px', background: '#f0f9ff', borderRadius: 8, fontSize: 12, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+            <span className="material-icons-round" style={{ fontSize: 16 }}>info</span>
+            รายการจะถูกส่งให้ผู้จัดการฝ่ายบัญชีตรวจสอบก่อนบันทึกจริง
+          </div>
+          <button onClick={() => {
+            setLoadingCats(true)
+            categoryApi.getMine().then((res) => {
+              const r = res as CategoriesResponse
+              setCategories(r.categories || [])
+              const init: Record<string, { open: boolean; items: Record<string, string>[] }> = {}
+              ;(r.categories || []).forEach(cat => { init[cat.id] = { open: false, items: [] } })
+              setPanels(init)
+            }).catch(() => {}).finally(() => setLoadingCats(false))
+          }} style={{ padding: '8px 12px', borderRadius: 10, background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, flexShrink: 0 }}>
+            <span className="material-icons-round" style={{ fontSize: 16 }}>refresh</span>
+            รีเฟรช
+          </button>
         </div>
       </div>
 
@@ -884,7 +970,7 @@ function BudgetTab({ user, flash }: { user: ReturnType<typeof getSession>; flash
       setCategories(catRes.categories || [])
       const nb: Record<string, { monthly: string; daily: string }> = {}
       ;(catRes.categories || []).forEach(cat => {
-        const e = budgetRes.data?.[cat.id]
+        const e = (budgetRes.data as unknown as Record<string, typeof budgetRes.data.labor>)?.[cat.id]
         nb[cat.id] = { monthly: e?.monthlyBudget ? String(e.monthlyBudget) : '', daily: e?.dailyRate ? String(e.dailyRate) : '' }
       })
       setBudgets(nb)
@@ -912,7 +998,7 @@ function BudgetTab({ user, flash }: { user: ReturnType<typeof getSession>; flash
 
   // Get display info for a category id — prefer data returned from backend, fallback to local category list
   function getCatMeta(catId: string) {
-    const entry = data?.data?.[catId] as (typeof data.data)[string] & { label?: string; color?: string; icon?: string } | undefined
+    const entry = data?.data ? (data.data as unknown as Record<string, { label?: string; color?: string; icon?: string; monthlyBudget?: number; dailyRate?: number; spentToday?: number; spentMonth?: number; remainDay?: number; remainMonth?: number; currentDay?: number }>)[catId] : undefined
     const cat = categories.find(c => c.id === catId)
     return {
       label: entry?.label || cat?.name || catId,
@@ -947,7 +1033,7 @@ function BudgetTab({ user, flash }: { user: ReturnType<typeof getSession>; flash
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
           {catIds.map(catId => {
             const meta = getCatMeta(catId)
-            const entry = data?.data?.[catId]
+            const entry = data?.data ? (data.data as unknown as Record<string, { monthlyBudget: number; dailyRate: number; spentToday: number; spentMonth: number; remainDay: number; remainMonth: number; currentDay: number }>)[catId] : undefined
             const pct = entry && entry.monthlyBudget > 0 ? Math.min(100, (entry.spentMonth / entry.monthlyBudget) * 100) : 0
             const over = entry && entry.spentMonth > entry.monthlyBudget && entry.monthlyBudget > 0
             return (
@@ -1038,6 +1124,8 @@ function BudgetTab({ user, flash }: { user: ReturnType<typeof getSession>; flash
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
 function HistoryTab() {
+  const user = getSession()
+  const isManager = MANAGER_ROLES.includes(user?.role || '')
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
@@ -1050,6 +1138,63 @@ function HistoryTab() {
   const [catFilter, setCatFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
+
+  // Edit modal
+  const [editTarget, setEditTarget] = useState<ExpenseRecord | null>(null)
+  const [editDate, setEditDate] = useState('')
+  const [editAmount, setEditAmount] = useState('')
+  const [editDetail, setEditDetail] = useState('')
+  const [editNote, setEditNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Delete
+  const [deleteTarget, setDeleteTarget] = useState<ExpenseRecord | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+
+  function isWithin3Days(e: ExpenseRecord): boolean {
+    const raw = e.createdAt || e.approvedAt
+    if (!raw) return true
+    const d = new Date(raw)
+    return (Date.now() - d.getTime()) <= 3 * 24 * 60 * 60 * 1000
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await expenseApi.deleteExpense(deleteTarget.id) as { success: boolean }
+      if (res.success) {
+        setDeleteTarget(null)
+        loadHistory(page, monthFilter, catFilter, search)
+      }
+    } catch {} finally { setDeleting(false) }
+  }
+
+  function openEdit(e: ExpenseRecord) {
+    setEditTarget(e)
+    setEditDate(e.date.split('/').reverse().join('-'))
+    setEditAmount(String(e.amount))
+    setEditDetail(e.detail || '')
+    setEditNote(e.note || '')
+  }
+
+  async function saveEdit() {
+    if (!editTarget) return
+    setSaving(true)
+    try {
+      const res = await expenseApi.editExpense(editTarget.id, {
+        date: editDate ? editDate.split('-').reverse().join('/') : undefined,
+        amount: parseFloat(editAmount) || undefined,
+        detail: editDetail || undefined,
+        note: editNote || undefined,
+      }) as { success: boolean; message: string }
+      if (res.success) {
+        setEditTarget(null)
+        loadHistory(page, monthFilter, catFilter, search)
+      }
+    } catch {} finally { setSaving(false) }
+  }
 
   useEffect(() => {
     categoryApi.getAll().then((r) => {
@@ -1074,61 +1219,99 @@ function HistoryTab() {
 
   function handleSearch() { setPage(1); setSearch(searchInput) }
 
-  async function printRecord(e: ExpenseRecord) {
-    const { default: jsPDF } = await import('jspdf')
-    const doc = new jsPDF({ unit: 'mm', format: 'a5' })
-    doc.setFont('helvetica')
-    const cx = 74
-    doc.setFillColor(37, 99, 235)
-    doc.rect(0, 0, 148, 22, 'F')
-    doc.setFontSize(14); doc.setTextColor(255, 255, 255)
-    doc.text('PlaNeat', cx, 10, { align: 'center' })
-    doc.setFontSize(9)
-    doc.text('ใบบันทึกค่าใช้จ่าย', cx, 17, { align: 'center' })
-    doc.setTextColor(30, 41, 59)
-    let y = 30
-    doc.setFontSize(11); doc.setFont('helvetica', 'bold')
-    doc.text(e.category, 14, y); y += 8
-    const rows: [string, string][] = [
-      ['วันที่:', e.date], ['รายละเอียด:', e.detail || '—'],
-      ['ยอดเงิน:', `฿${e.amount.toLocaleString('th-TH')}`], ['หมายเหตุ:', e.note || '—'],
-    ]
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    for (const [k, v] of rows) {
-      doc.setFont('helvetica', 'bold'); doc.text(k, 14, y)
-      doc.setFont('helvetica', 'normal'); doc.text(v, 50, y); y += 7
-    }
-    y += 4; doc.setDrawColor(226, 232, 240); doc.line(14, y, 134, y); y += 7
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
-    doc.text('ผู้บันทึก:', 14, y); doc.setFont('helvetica', 'normal')
-    doc.text(e.recorderName || e.recorder, 50, y)
-    y += 9
-    if (e.approverName) {
-      doc.setFont('helvetica', 'bold'); doc.text('อนุมัติโดย:', 14, y)
-      doc.setFont('helvetica', 'normal'); doc.text(e.approverName, 50, y)
-    }
-    doc.setFontSize(7); doc.setTextColor(148, 163, 184)
-    doc.text(`พิมพ์เมื่อ: ${new Date().toLocaleString('th-TH')} · PlaNeat System`, cx, 185, { align: 'center' })
-    doc.save(`expense-${e.id.slice(0, 8)}.pdf`)
+  function printRecord(e: ExpenseRecord) {
+    const printHtml = `<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>ใบบันทึกค่าใช้จ่าย</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Sarabun', sans-serif; background: #fff; color: #1e293b; }
+  .header { background: #1e3a8a; color: white; padding: 18px 24px; display:flex; align-items:center; justify-content:space-between; }
+  .header h1 { font-size: 20px; font-weight: 700; }
+  .header p { font-size: 11px; opacity: 0.75; margin-top:2px; }
+  .body { padding: 28px 24px; }
+  .title { font-size: 15px; font-weight: 700; color: #1e3a8a; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
+  .row { display:flex; margin-bottom: 12px; }
+  .label { width: 120px; font-weight: 600; color: #64748b; font-size: 13px; flex-shrink:0; }
+  .value { font-size: 13px; color: #1e293b; flex: 1; }
+  .amount-row { margin-top: 20px; padding: 16px; background: #eff6ff; border-radius: 8px; display:flex; justify-content:space-between; align-items:center; }
+  .amount-label { font-weight: 600; color: #1e3a8a; }
+  .amount-value { font-size: 22px; font-weight: 700; color: #1e3a8a; }
+  .sig { margin-top: 40px; display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  .sig-box { text-align:center; }
+  .sig-line { border-top: 1px solid #94a3b8; padding-top: 6px; margin-top: 36px; font-size: 12px; color: #64748b; }
+  .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e2e8f0; text-align:center; font-size: 11px; color: #94a3b8; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>PlaNeat Support</h1>
+    <p>ใบบันทึกค่าใช้จ่าย</p>
+  </div>
+  <div style="font-size:12px;opacity:0.8">พิมพ์เมื่อ: ${new Date().toLocaleDateString('th-TH', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+</div>
+<div class="body">
+  <div class="title">${e.category || '—'}</div>
+  <div class="row"><span class="label">วันที่:</span><span class="value">${e.date || '—'}</span></div>
+  <div class="row"><span class="label">รายละเอียด:</span><span class="value">${e.detail || '—'}</span></div>
+  <div class="row"><span class="label">หมายเหตุ:</span><span class="value">${e.note || '—'}</span></div>
+  <div class="row"><span class="label">ผู้บันทึก:</span><span class="value">${e.recorderName || e.recorder || '—'}</span></div>
+  ${e.approverName ? `<div class="row"><span class="label">อนุมัติโดย:</span><span class="value">${e.approverName}</span></div>` : ''}
+  <div class="amount-row">
+    <span class="amount-label">ยอดเงิน</span>
+    <span class="amount-value">฿${e.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+  </div>
+  <div class="sig">
+    <div class="sig-box"><div class="sig-line">ผู้บันทึก</div></div>
+    <div class="sig-box"><div class="sig-line">ผู้อนุมัติ</div></div>
+  </div>
+  <div class="footer">PlaNeat Support System · รหัสรายการ: ${e.id.slice(0, 8).toUpperCase()}</div>
+</div>
+<script>window.onload = function(){ window.print(); }<\/script>
+</body></html>`
+    const win = window.open('', '_blank', 'width=700,height=900')
+    if (win) { win.document.write(printHtml); win.document.close() }
   }
 
-  async function printAll() {
-    const { default: jsPDF } = await import('jspdf')
-    const { default: autoTable } = await import('jspdf-autotable')
-    const doc = new jsPDF()
-    doc.setFont('helvetica'); doc.setFontSize(14)
-    doc.text('ประวัติค่าใช้จ่าย — PlaNeat', 14, 16)
-    doc.setFontSize(10)
-    doc.text(`เดือน: ${monthInputToApi(monthFilter)}  ค้นหา: ${search || '-'}`, 14, 24)
-    doc.text(`พิมพ์เมื่อ: ${new Date().toLocaleDateString('th-TH')} · รวม ${total} รายการ`, 14, 30)
-    autoTable(doc, {
-      startY: 36,
-      head: [['วันที่', 'หมวด', 'รายละเอียด', 'ยอด (฿)', 'ผู้บันทึก', 'อนุมัติโดย']],
-      body: expenses.map(e => [e.date, e.category, e.detail || '—', e.amount.toLocaleString('th-TH'), e.recorderName || e.recorder, e.approverName || '—']),
-      styles: { fontSize: 7 },
-      headStyles: { fillColor: [37, 99, 235] },
-    })
-    doc.save(`planeat-history-${monthFilter}.pdf`)
+  // Print options modal
+  const [showPrintModal, setShowPrintModal] = useState(false)
+  const [printCatKey, setPrintCatKey] = useState('all')
+  const [printing, setPrinting] = useState(false)
+  // Default date range = current month
+  const _todayStr = () => new Date().toISOString().slice(0, 10)
+  const _monthStart = () => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10) }
+  const [printDateFrom, setPrintDateFrom] = useState(_monthStart)
+  const [printDateTo, setPrintDateTo] = useState(_todayStr)
+  const [printMode, setPrintMode] = useState<'auto' | 'summary' | 'detail'>('auto')
+
+  async function openPdfReport() {
+    if (!printDateFrom || !printDateTo) { alert('กรุณาเลือกช่วงวันที่'); return }
+    if (printDateFrom > printDateTo) { alert('วันเริ่มต้นต้องไม่มากกว่าวันสิ้นสุด'); return }
+    setPrinting(true)
+    try {
+      const params = new URLSearchParams({ catKey: printCatKey, dateFrom: printDateFrom, dateTo: printDateTo, mode: printMode })
+      let token = ''
+      if (typeof window !== 'undefined') {
+        try {
+          const saved = sessionStorage.getItem('planeat_user')
+          if (saved) token = JSON.parse(saved)?.token || ''
+        } catch {}
+      }
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+      const res = await fetch(`${baseUrl}/api/reports/history-pdf?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) { alert('สร้างรายงานล้มเหลว'); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setShowPrintModal(false)
+    } catch { alert('เกิดข้อผิดพลาด') } finally { setPrinting(false) }
   }
 
   const pageNums = () => {
@@ -1176,9 +1359,9 @@ function HistoryTab() {
               </button>
             </div>
           </div>
-          <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: 12 }} onClick={printAll}>
+          <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: 12 }} onClick={() => setShowPrintModal(true)}>
             <span className="material-icons-round" style={{ fontSize: 14 }}>picture_as_pdf</span>
-            พิมพ์รายการ
+            พิมพ์รายงาน
           </button>
         </div>
         <p style={{ margin: '10px 0 0', fontSize: 12, color: '#94a3b8' }}>พบ {total.toLocaleString('th-TH')} รายการ</p>
@@ -1197,7 +1380,7 @@ function HistoryTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                  {['วันที่','หมวด','รายละเอียด','ยอด (฿)','ผู้บันทึก','LINE ผู้บันทึก','อนุมัติโดย',''].map((h, i) => (
+                  {['วันที่','หมวด','รายละเอียด','ยอด (฿)','ผู้บันทึก','อนุมัติโดย',''].map((h, i) => (
                     <th key={i} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -1223,12 +1406,35 @@ function HistoryTab() {
                       </td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>{e.approverName || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                       <td style={{ padding: '10px 12px' }}>
-                        <button onClick={() => printRecord(e)} title="พิมพ์รายการนี้"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 6 }}
-                          onMouseEnter={ev => (ev.currentTarget.style.color = '#2563eb')}
-                          onMouseLeave={ev => (ev.currentTarget.style.color = '#94a3b8')}>
-                          <span className="material-icons-round" style={{ fontSize: 18 }}>print</span>
-                        </button>
+                        <div style={{ display: 'flex', gap: 2 }}>
+                          {isManager && (() => {
+                            const editable = isWithin3Days(e)
+                            return (
+                              <>
+                                <button onClick={() => editable ? openEdit(e) : undefined}
+                                  title={editable ? 'แก้ไขรายการ' : 'ไม่สามารถแก้ไขรายการที่เกิน 3 วันได้'}
+                                  style={{ background: 'none', border: 'none', cursor: editable ? 'pointer' : 'not-allowed', color: editable ? '#94a3b8' : '#e2e8f0', padding: 4, borderRadius: 6 }}
+                                  onMouseEnter={ev => { if (editable) ev.currentTarget.style.color = '#f59e0b' }}
+                                  onMouseLeave={ev => { if (editable) ev.currentTarget.style.color = '#94a3b8' }}>
+                                  <span className="material-icons-round" style={{ fontSize: 18 }}>edit</span>
+                                </button>
+                                <button onClick={() => editable ? setDeleteTarget(e) : undefined}
+                                  title={editable ? 'ลบรายการ' : 'ไม่สามารถลบรายการที่เกิน 3 วันได้'}
+                                  style={{ background: 'none', border: 'none', cursor: editable ? 'pointer' : 'not-allowed', color: editable ? '#94a3b8' : '#e2e8f0', padding: 4, borderRadius: 6 }}
+                                  onMouseEnter={ev => { if (editable) ev.currentTarget.style.color = '#ef4444' }}
+                                  onMouseLeave={ev => { if (editable) ev.currentTarget.style.color = '#94a3b8' }}>
+                                  <span className="material-icons-round" style={{ fontSize: 18 }}>delete</span>
+                                </button>
+                              </>
+                            )
+                          })()}
+                          <button onClick={() => printRecord(e)} title="พิมพ์รายการนี้"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, borderRadius: 6 }}
+                            onMouseEnter={ev => (ev.currentTarget.style.color = '#2563eb')}
+                            onMouseLeave={ev => (ev.currentTarget.style.color = '#94a3b8')}>
+                            <span className="material-icons-round" style={{ fontSize: 18 }}>print</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -1259,6 +1465,165 @@ function HistoryTab() {
           </div>
         )}
       </div>
+
+      {/* ── Edit Modal ─────────────────────────────────────── */}
+      {editTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="bg-white rounded-2xl shadow-2xl" style={{ width: '100%', maxWidth: 440 }}>
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="material-icons-round" style={{ fontSize: 18, color: '#f59e0b' }}>edit</span>
+                แก้ไขรายการ
+              </h3>
+              <button onClick={() => setEditTarget(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                <span className="material-icons-round" style={{ fontSize: 20 }}>close</span>
+              </button>
+            </div>
+            <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label className="form-label">วันที่</label>
+                <input type="date" className="form-input" value={editDate} onChange={e => setEditDate(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">ยอดเงิน (฿)</label>
+                <input type="number" className="form-input" value={editAmount} onChange={e => setEditAmount(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">รายละเอียด</label>
+                <input type="text" className="form-input" value={editDetail} onChange={e => setEditDetail(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">หมายเหตุ</label>
+                <input type="text" className="form-input" value={editNote} onChange={e => setEditNote(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                <button className="btn-secondary" onClick={() => setEditTarget(null)}>ยกเลิก</button>
+                <button className="btn-primary" onClick={saveEdit} disabled={saving}>
+                  {saving ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Print Options Modal ───────────────────────────── */}
+      {showPrintModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="bg-white rounded-2xl shadow-2xl" style={{ width: '100%', maxWidth: 420 }}>
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="material-icons-round" style={{ fontSize: 18, color: '#2563eb' }}>picture_as_pdf</span>
+                ตัวเลือกรายงาน PDF
+              </h3>
+              <button onClick={() => setShowPrintModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                <span className="material-icons-round" style={{ fontSize: 20 }}>close</span>
+              </button>
+            </div>
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Quick range shortcuts */}
+              <div>
+                <label className="form-label">ช่วงเวลาด่วน</label>
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                  {([
+                    ['วันนี้', () => { const t = new Date().toISOString().slice(0,10); setPrintDateFrom(t); setPrintDateTo(t) }],
+                    ['สัปดาห์นี้', () => { const t = new Date(); const mon = new Date(t); mon.setDate(t.getDate()-t.getDay()+1); setPrintDateFrom(mon.toISOString().slice(0,10)); setPrintDateTo(t.toISOString().slice(0,10)) }],
+                    ['เดือนนี้', () => { const t = new Date(); const s = new Date(t.getFullYear(), t.getMonth(), 1); setPrintDateFrom(s.toISOString().slice(0,10)); setPrintDateTo(t.toISOString().slice(0,10)) }],
+                    ['เดือนที่แล้ว', () => { const t = new Date(); const s = new Date(t.getFullYear(), t.getMonth()-1, 1); const e = new Date(t.getFullYear(), t.getMonth(), 0); setPrintDateFrom(s.toISOString().slice(0,10)); setPrintDateTo(e.toISOString().slice(0,10)) }],
+                    ['ปีนี้', () => { const t = new Date(); setPrintDateFrom(`${t.getFullYear()}-01-01`); setPrintDateTo(t.toISOString().slice(0,10)) }],
+                  ] as [string, () => void][]).map(([label, fn]) => (
+                    <button key={label} onClick={fn}
+                      style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid #e2e8f0', background: 'white', fontSize: 12, cursor: 'pointer', color: '#475569' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Custom date range */}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">ตั้งแต่วันที่</label>
+                  <input type="date" className="form-input" style={{ marginTop: 6 }} value={printDateFrom} onChange={e => setPrintDateFrom(e.target.value)} />
+                </div>
+                <div style={{ paddingBottom: 8, color: '#94a3b8', fontWeight: 600 }}>—</div>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">ถึงวันที่</label>
+                  <input type="date" className="form-input" style={{ marginTop: 6 }} value={printDateTo} onChange={e => setPrintDateTo(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="form-label">หมวดหมู่</label>
+                <select className="form-input" style={{ marginTop: 6 }} value={printCatKey} onChange={e => setPrintCatKey(e.target.value)}>
+                  <option value="all">ทุกหมวด (รวมทั้งหมด)</option>
+                  {CAT_KEYS_LEGACY.map(k => <option key={k} value={k}>{CAT_STYLE[k].label}</option>)}
+                  {categories.filter(c => !['labor','raw','chem','repair'].includes(c.id)).map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">รูปแบบรายงาน</label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  {([
+                    ['auto',    'อัตโนมัติ',   'auto_awesome', '≤50 รายการ = รายละเอียด, >50 = แยกหมวด'],
+                    ['summary', 'สรุปเท่านั้น', 'summarize',    'แสดงยอดรวมต่อหมวด (เหมาะรายปี)'],
+                    ['detail',  'รายละเอียด',   'format_list_bulleted', 'แสดงทุก transaction'],
+                  ] as [string,string,string,string][]).map(([val, label, icon, tip]) => (
+                    <button key={val} onClick={() => setPrintMode(val as any)} title={tip}
+                      style={{
+                        flex: 1, padding: '7px 6px', borderRadius: 8, fontSize: 11, cursor: 'pointer',
+                        border: printMode === val ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                        background: printMode === val ? '#eff6ff' : 'white',
+                        color: printMode === val ? '#1d4ed8' : '#475569',
+                        fontWeight: printMode === val ? 700 : 400,
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                      }}>
+                      <span className="material-icons-round" style={{ fontSize: 16 }}>{icon}</span>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '12px 24px 20px', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowPrintModal(false)} style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', fontSize: 13, cursor: 'pointer', color: '#64748b' }}>ยกเลิก</button>
+              <button onClick={openPdfReport} disabled={printing}
+                style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#2563eb', color: 'white', fontSize: 13, fontWeight: 600, cursor: printing ? 'not-allowed' : 'pointer', opacity: printing ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="material-icons-round" style={{ fontSize: 16 }}>open_in_new</span>
+                {printing ? 'กำลังสร้าง...' : 'เปิดรายงาน PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirm Modal ───────────────────────────── */}
+      {deleteTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="bg-white rounded-2xl shadow-2xl" style={{ width: '100%', maxWidth: 400 }}>
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="material-icons-round" style={{ fontSize: 20, color: '#ef4444' }}>delete_forever</span>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>ยืนยันการลบรายการ</h3>
+            </div>
+            <div style={{ padding: '20px 24px' }}>
+              <p style={{ margin: '0 0 8px', fontSize: 14, color: '#475569' }}>คุณต้องการลบรายการนี้ใช่หรือไม่?</p>
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#991b1b' }}>
+                <strong>{deleteTarget.category}</strong> — {deleteTarget.date}<br />
+                ยอด ฿{deleteTarget.amount.toLocaleString('th-TH')} | {deleteTarget.recorderName || deleteTarget.recorder}
+              </div>
+              <p style={{ margin: '10px 0 0', fontSize: 12, color: '#ef4444' }}>การลบไม่สามารถกู้คืนได้</p>
+            </div>
+            <div style={{ padding: '12px 24px 20px', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteTarget(null)} style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', fontSize: 13, cursor: 'pointer', color: '#64748b' }}>ยกเลิก</button>
+              <button onClick={confirmDelete} disabled={deleting}
+                style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#ef4444', color: 'white', fontSize: 13, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.7 : 1 }}>
+                {deleting ? 'กำลังลบ...' : 'ยืนยันลบ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -1274,10 +1639,270 @@ interface FieldDraft {
 
 const CALC_ROLES: CalcRole[] = ['qty', 'price', 'addend', 'fixed', 'note', 'none']
 const ROLE_LABELS_CALC: Record<CalcRole, string> = {
-  qty: 'จำนวน (qty)', price: 'ราคา (price)', addend: 'บวกเพิ่ม (addend)',
-  fixed: 'ยอดรวม (fixed)', note: 'หมายเหตุ', none: 'ไม่ใช้คำนวณ',
+  qty: 'ตัวคูณ/จำนวน', price: 'ราคาต่อหน่วย', addend: 'บวกเพิ่ม',
+  fixed: 'ยอดรวมคงที่', note: 'หมายเหตุ', none: 'ไม่ใช้คำนวณ',
+}
+const ROLE_ICONS_CALC: Record<CalcRole, string> = {
+  qty: 'tag', price: 'sell', addend: 'add_circle_outline',
+  fixed: 'attach_money', note: 'notes', none: 'block',
+}
+const ROLE_COLORS_CALC: Record<CalcRole, string> = {
+  qty: '#3b82f6', price: '#10b981', addend: '#f59e0b',
+  fixed: '#8b5cf6', note: '#64748b', none: '#cbd5e1',
 }
 const FORMULAS = ['qty*price', 'qty*price+addend', 'fixed', 'qty+price']
+const FORMULA_LABELS: Record<string, string> = {
+  'qty*price':        'จำนวน × ราคาต่อหน่วย',
+  'qty*price+addend': 'จำนวน × ราคา + ส่วนเพิ่ม',
+  'fixed':            'ระบุยอดรวมคงที่',
+  'qty+price':        'ยอดที่ 1 + ยอดที่ 2',
+}
+const FORMULA_HINTS: Record<string, string> = {
+  'qty*price':        'เหมาะกับรายการที่มีจำนวนมาก เช่น ซื้อของชิ้นเล็กเยอะๆ ระบบจะคำนวณ จำนวน × ราคาต่อหน่วย ให้อัตโนมัติ',
+  'qty*price+addend': 'เหมาะกับค่าแรงรายวัน + ค่าล่วงเวลา OT ระบบจะคำนวณ (จำนวน × ราคา) + ค่าเพิ่มเติม',
+  'fixed':            'เหมาะกับค่าน้ำ ค่าไฟ รายเดือน หรือรายการที่รู้ยอดสรุปอยู่แล้ว ระบุยอดรวมได้เลย',
+  'qty+price':        'กรณีมีตัวเลขสองส่วนที่ต้องบวกกันโดยตรง เช่น ค่าวัสดุ + ค่าขนส่ง',
+}
+
+const CATEGORY_TEMPLATES: Record<string, FieldDraft[]> = {
+  'qty*price': [
+    { fieldId: 'itemName', label: 'ชื่อรายการ', type: 'text', unit: '', placeholder: 'ระบุชื่อ', required: true, calcRole: 'none', options: [] },
+    { fieldId: 'quantity', label: 'จำนวน', type: 'number', unit: '', placeholder: '0', required: true, calcRole: 'qty', options: [] },
+    { fieldId: 'price', label: 'ราคาต่อหน่วย', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'price', options: [] },
+    { fieldId: 'note', label: 'หมายเหตุ', type: 'text', unit: '', placeholder: '(ถ้ามี)', required: false, calcRole: 'note', options: [] },
+  ],
+  'qty*price+addend': [
+    { fieldId: 'itemName', label: 'ชื่อรายการ', type: 'text', unit: '', placeholder: 'ระบุชื่อ', required: true, calcRole: 'none', options: [] },
+    { fieldId: 'workers', label: 'จำนวน', type: 'number', unit: 'คน', placeholder: '0', required: true, calcRole: 'qty', options: [] },
+    { fieldId: 'dailyWage', label: 'ราคาต่อหน่วย', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'price', options: [] },
+    { fieldId: 'ot', label: 'ค่าเพิ่มเติม', type: 'number', unit: '฿', placeholder: '0', required: false, calcRole: 'addend', options: [] },
+    { fieldId: 'note', label: 'หมายเหตุ', type: 'text', unit: '', placeholder: '(ถ้ามี)', required: false, calcRole: 'note', options: [] },
+  ],
+  'fixed': [
+    { fieldId: 'itemName', label: 'ชื่อรายการ', type: 'text', unit: '', placeholder: 'ระบุชื่อ', required: true, calcRole: 'none', options: [] },
+    { fieldId: 'totalCost', label: 'ยอดเงิน', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'fixed', options: [] },
+    { fieldId: 'note', label: 'หมายเหตุ', type: 'text', unit: '', placeholder: '(ถ้ามี)', required: false, calcRole: 'note', options: [] },
+  ],
+  'qty+price': [
+    { fieldId: 'itemName', label: 'ชื่อรายการ', type: 'text', unit: '', placeholder: 'ระบุชื่อ', required: true, calcRole: 'none', options: [] },
+    { fieldId: 'qty', label: 'ระบุยอดที่ 1', type: 'number', unit: '', placeholder: '0', required: true, calcRole: 'qty', options: [] },
+    { fieldId: 'price', label: 'ระบุยอดที่ 2', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'price', options: [] },
+    { fieldId: 'note', label: 'หมายเหตุ', type: 'text', unit: '', placeholder: '(ถ้ามี)', required: false, calcRole: 'note', options: [] },
+  ],
+}
+
+// ── Preset color palette ──────────────────────────────────────────────────────
+const PRESET_COLORS = [
+  '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+  '#06b6d4','#f97316','#ec4899','#6366f1','#14b8a6',
+]
+
+// ── Unit groups ───────────────────────────────────────────────────────────────
+const UNIT_GROUPS = [
+  {
+    label: 'หมวดสิ่งของ',
+    icon: 'inventory_2',
+    units: ['ชิ้น','อัน','กล่อง','ชุด','รีม','เครื่อง','กิโลกรัม','แพ็ค','ถุง','แผ่น'],
+  },
+  {
+    label: 'หมวดเวลา',
+    icon: 'schedule',
+    units: ['เดือน','วัน','ชั่วโมง','ปี','ครั้ง','นาที','สัปดาห์','งวด'],
+  },
+  {
+    label: 'หมวดการวัด/บริการ',
+    icon: 'straighten',
+    units: ['ลิตร','หน่วย','ตารางเมตร','กิโลเมตร','ทริป','เมตร','ตัน','ถัง'],
+  },
+]
+
+// ── Popular Material Icons for picker ─────────────────────────────────────────
+const ICON_LIBRARY = [
+  { name: 'receipt_long', tags: ['bill','receipt','เงิน'] },
+  { name: 'local_gas_station', tags: ['fuel','gas','น้ำมัน'] },
+  { name: 'construction', tags: ['repair','ซ่อม','build'] },
+  { name: 'science', tags: ['chemical','chem','สาร'] },
+  { name: 'people', tags: ['labor','worker','แรงงาน','คน'] },
+  { name: 'inventory_2', tags: ['stock','สินค้า','ของ'] },
+  { name: 'electric_bolt', tags: ['electric','ไฟฟ้า'] },
+  { name: 'water_drop', tags: ['water','น้ำ'] },
+  { name: 'local_shipping', tags: ['shipping','ส่ง','ขนส่ง'] },
+  { name: 'restaurant', tags: ['food','อาหาร','ร้าน'] },
+  { name: 'build', tags: ['tool','เครื่องมือ','repair'] },
+  { name: 'medical_services', tags: ['medical','สุขภาพ','ยา'] },
+  { name: 'attach_money', tags: ['money','เงิน','salary'] },
+  { name: 'payments', tags: ['pay','จ่าย','เงิน'] },
+  { name: 'account_balance', tags: ['bank','ธนาคาร'] },
+  { name: 'shopping_cart', tags: ['shop','ซื้อ','cart'] },
+  { name: 'warehouse', tags: ['warehouse','โกดัง','store'] },
+  { name: 'agriculture', tags: ['farm','เกษตร','crop'] },
+  { name: 'forest', tags: ['tree','ป่า','plant'] },
+  { name: 'eco', tags: ['green','eco','ปุ๋ย'] },
+  { name: 'grass', tags: ['grass','หญ้า','plant'] },
+  { name: 'pest_control', tags: ['pest','สาร','กำจัด'] },
+  { name: 'local_cafe', tags: ['cafe','coffee','กาแฟ'] },
+  { name: 'drive_eta', tags: ['car','รถ','vehicle'] },
+  { name: 'local_taxi', tags: ['taxi','รถ','travel'] },
+  { name: 'flight', tags: ['flight','เดินทาง','plane'] },
+  { name: 'home_repair_service', tags: ['repair','บ้าน','fix'] },
+  { name: 'cleaning_services', tags: ['clean','ทำความสะอาด'] },
+  { name: 'settings', tags: ['setting','ตั้งค่า','gear'] },
+  { name: 'handyman', tags: ['fix','ช่าง','repair'] },
+  { name: 'plumbing', tags: ['plumb','ท่อ','water'] },
+  { name: 'electrical_services', tags: ['electric','ไฟฟ้า','plug'] },
+  { name: 'fire_extinguisher', tags: ['fire','ดับเพลิง'] },
+  { name: 'security', tags: ['security','รปภ.','guard'] },
+  { name: 'badge', tags: ['id','badge','พนักงาน'] },
+  { name: 'category', tags: ['category','หมวด'] },
+  { name: 'business_center', tags: ['business','งาน','office'] },
+  { name: 'calculate', tags: ['calc','คำนวณ'] },
+  { name: 'bar_chart', tags: ['chart','กราฟ'] },
+  { name: 'trending_up', tags: ['trend','ขึ้น','growth'] },
+  { name: 'stars', tags: ['star','พิเศษ'] },
+  { name: 'label', tags: ['label','ป้าย','tag'] },
+  { name: 'loyalty', tags: ['loyalty','ส่วนลด'] },
+  { name: 'redeem', tags: ['gift','ของขวัญ'] },
+  { name: 'phone_android', tags: ['phone','มือถือ'] },
+  { name: 'computer', tags: ['computer','คอม','it'] },
+  { name: 'print', tags: ['print','พิมพ์','printer'] },
+  { name: 'content_cut', tags: ['cut','ตัด','scissors'] },
+  { name: 'brush', tags: ['paint','ทาสี','art'] },
+  { name: 'format_paint', tags: ['paint','สี','ทาสี'] },
+]
+
+// ── Creatable Unit Select Component ───────────────────────────────────────────
+function UnitSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const allUnits = UNIT_GROUPS.flatMap(g => g.units)
+  const filteredGroups = query.trim()
+    ? UNIT_GROUPS.map(g => ({ ...g, units: g.units.filter(u => u.includes(query)) })).filter(g => g.units.length > 0)
+    : UNIT_GROUPS
+  const showCreate = query.trim() && !allUnits.includes(query.trim())
+
+  function select(v: string) { onChange(v); setQuery(''); setOpen(false) }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 12 }}>
+        <span style={{ color: value ? '#1e293b' : '#94a3b8' }}>{value || 'เลือกหน่วย...'}</span>
+        <span className="material-icons-round" style={{ fontSize: 14, color: '#94a3b8' }}>expand_more</span>
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px #0002', zIndex: 100, marginTop: 4, maxHeight: 260, overflowY: 'auto' }}>
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid #f1f5f9', position: 'sticky', top: 0, background: 'white' }}>
+            <input autoFocus type="text" placeholder="ค้นหาหรือพิมพ์หน่วยใหม่..." value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && query.trim()) select(query.trim()) }}
+              style={{ width: '100%', border: 'none', outline: 'none', fontSize: 12, color: '#1e293b', background: 'transparent' }} />
+          </div>
+          {showCreate && (
+            <button onClick={() => select(query.trim())} style={{ width: '100%', padding: '8px 12px', background: '#eff6ff', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 12, color: '#2563eb', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="material-icons-round" style={{ fontSize: 14 }}>add_circle</span>
+              สร้างหน่วย "{query.trim()}"
+            </button>
+          )}
+          {filteredGroups.map(g => (
+            <div key={g.label}>
+              <div style={{ padding: '6px 12px', fontSize: 10, fontWeight: 700, color: '#94a3b8', letterSpacing: 1, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span className="material-icons-round" style={{ fontSize: 12 }}>{g.icon}</span>
+                {g.label}
+              </div>
+              {g.units.map(u => (
+                <button key={u} onClick={() => select(u)}
+                  style={{ width: '100%', padding: '6px 20px', background: value === u ? '#eff6ff' : 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 12, color: value === u ? '#2563eb' : '#374151', fontWeight: value === u ? 700 : 400, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                  onMouseEnter={e => { if (value !== u) (e.currentTarget as HTMLButtonElement).style.background = '#f8fafc' }}
+                  onMouseLeave={e => { if (value !== u) (e.currentTarget as HTMLButtonElement).style.background = 'none' }}>
+                  {u}
+                  {value === u && <span className="material-icons-round" style={{ fontSize: 14, color: '#2563eb' }}>check</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+          {filteredGroups.length === 0 && !showCreate && (
+            <div style={{ padding: '16px 12px', textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>ไม่พบหน่วย กด Enter เพื่อสร้างใหม่</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Icon Picker Component ─────────────────────────────────────────────────────
+function IconPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = query.trim()
+    ? ICON_LIBRARY.filter(ic => ic.name.includes(query) || ic.tags.some(t => t.includes(query)))
+    : ICON_LIBRARY
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>
+        <span className="material-icons-round" style={{ fontSize: 20, color: '#3b82f6' }}>{value || 'receipt_long'}</span>
+        <span style={{ flex: 1, fontSize: 13, color: '#374151' }}>{value || 'receipt_long'}</span>
+        <span className="material-icons-round" style={{ fontSize: 14, color: '#94a3b8' }}>expand_more</span>
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, boxShadow: '0 8px 32px #0003', zIndex: 200, marginTop: 4 }}>
+          <div style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
+              <span className="material-icons-round" style={{ fontSize: 16, color: '#94a3b8' }}>search</span>
+              <input autoFocus type="text" placeholder="ค้นหาไอคอน เช่น car, water, lab..." value={query}
+                onChange={e => setQuery(e.target.value)}
+                style={{ border: 'none', outline: 'none', fontSize: 13, background: 'transparent', flex: 1, color: '#1e293b' }} />
+              {query && <button onClick={() => setQuery('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>}
+            </div>
+          </div>
+          <div style={{ padding: 10, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+            {filtered.map(ic => (
+              <button key={ic.name} title={ic.name} onClick={() => { onChange(ic.name); setOpen(false) }}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 4px', borderRadius: 8, border: 'none', cursor: 'pointer', background: value === ic.name ? '#eff6ff' : 'transparent', transition: 'background 0.15s' }}
+                onMouseEnter={e => { if (value !== ic.name) (e.currentTarget as HTMLButtonElement).style.background = '#f1f5f9' }}
+                onMouseLeave={e => { if (value !== ic.name) (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}>
+                <span className="material-icons-round" style={{ fontSize: 22, color: value === ic.name ? '#2563eb' : '#374151' }}>{ic.name}</span>
+                <span style={{ fontSize: 8, color: '#94a3b8', marginTop: 2, lineHeight: 1.2, textAlign: 'center', maxWidth: 40, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ic.name.replace(/_/g, ' ')}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '16px 0', fontSize: 12, color: '#94a3b8' }}>ไม่พบไอคอน</div>
+            )}
+          </div>
+          <div style={{ padding: '8px 12px', borderTop: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>หรือพิมพ์ชื่อ Material Icon โดยตรง:</span>
+              <input type="text" placeholder="เช่น local_fire_department" value={value}
+                onChange={e => onChange(e.target.value)}
+                style={{ flex: 1, fontSize: 12, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, outline: 'none' }} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: string) => void; onCatChange: () => void }) {
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
@@ -1297,11 +1922,54 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
   const [order, setOrder] = useState(999)
   const [fields, setFields] = useState<FieldDraft[]>([])
   const [allowedUsers, setAllowedUsers] = useState<string[]>([])
+  const [publicAccess, setPublicAccess] = useState(false)
 
   // User search state
   const [userSearch, setUserSearch] = useState('')
   const [userResults, setUserResults] = useState<{ username: string; name: string; role: string }[]>([])
   const [searchingUsers, setSearchingUsers] = useState(false)
+
+  // Formula tooltip
+  const [formulaTooltip, setFormulaTooltip] = useState(false)
+
+  // Notification schedule
+  const [notifDaily,      setNotifDaily]      = useState<ReportScheduleItem>({ enabled: false, hour: 8, lineOaConfigId: '', targetId: '' })
+  const [notifWeekly,     setNotifWeekly]     = useState<ReportScheduleItem>({ enabled: false, hour: 8, lineOaConfigId: '', targetId: '' })
+  const [notifWeeklyDay,  setNotifWeeklyDay]  = useState(4)
+  const [notifMonthly,    setNotifMonthly]    = useState<ReportScheduleItem>({ enabled: false, hour: 8, lineOaConfigId: '', targetId: '' })
+  const [notifMonthlyDay, setNotifMonthlyDay] = useState(1)
+  const [lineOaConfigs,   setLineOaConfigs]   = useState<Array<{ id: string; name: string; token: string }>>([])
+
+  const DAY_LABELS = ['จ','อ','พ','พฤ','ศ','ส','อา']
+
+  // Preview state
+  const [previewRow, setPreviewRow] = useState<Record<string, string>>({})
+  const previewCat = useMemo(() => {
+    return {
+      id: 'preview',
+      name: name || 'ชื่อหมวดจำลอง...',
+      color,
+      icon,
+      formula: formula as any,
+      fields: fields.map(f => ({ ...f, type: f.type as any, calcRole: f.calcRole as any })),
+      allowedUsers: [], allowedRoles: [], isActive: true, order: 999, createdAt: '', createdBy: ''
+    } as ExpenseCategory
+  }, [name, color, icon, formula, fields])
+
+  const previewTotal = useMemo(() => {
+    const vals: Record<string, number> = {}
+    previewCat.fields.forEach(f => {
+      if (['qty','price','addend','fixed'].includes(f.calcRole)) {
+        vals[f.calcRole] = parseFloat(previewRow[f.fieldId] || '0') || 0
+      }
+    })
+    const { qty = 0, price = 0, addend = 0, fixed = 0 } = vals
+    if (previewCat.formula === 'qty*price') return qty * price
+    if (previewCat.formula === 'qty*price+addend') return qty * price + addend
+    if (previewCat.formula === 'fixed') return fixed
+    if (previewCat.formula === 'qty+price') return qty + price
+    return fixed || (qty * price + addend)
+  }, [previewCat, previewRow])
 
   const loadCats = useCallback(async () => {
     setLoading(true)
@@ -1328,21 +1996,42 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
     setUserSearch(''); setUserResults([])
   }
 
-  function openCreate() {
+  async function openCreate() {
     setEditingId(null)
     setName(''); setColor('#3b82f6'); setIcon('receipt_long'); setFormula('fixed'); setOrder(999)
-    setFields([{ fieldId: 'totalCost', label: 'ยอดเงิน', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'fixed', options: [] }])
-    setAllowedUsers([])
+    setFields(CATEGORY_TEMPLATES['fixed'].map(f => ({ ...f })))
+    setAllowedUsers([]); setPublicAccess(false)
     setUserSearch(''); setUserResults([])
+    const _empty = { enabled: false, hour: 8, lineOaConfigId: '', targetId: '' }
+    setNotifDaily(_empty); setNotifWeekly(_empty); setNotifWeeklyDay(4)
+    setNotifMonthly(_empty); setNotifMonthlyDay(1)
+    _loadLineOaConfigs()
     setShowModal(true)
+  }
+
+  async function _loadLineOaConfigs() {
+    try {
+      const res = await settingsApi.get() as { settings?: { lineOaConfigs?: Array<{ id: string; name: string; token: string }> } }
+      setLineOaConfigs(res.settings?.lineOaConfigs ?? [])
+    } catch { setLineOaConfigs([]) }
   }
 
   function openEdit(cat: ExpenseCategory) {
     setEditingId(cat.id)
     setName(cat.name); setColor(cat.color); setIcon(cat.icon); setFormula(cat.formula); setOrder(cat.order)
     setFields(cat.fields.map(f => ({ ...f })))
-    setAllowedUsers([...(cat.allowedUsers || [])])
+    const users = cat.allowedUsers || []
+    setAllowedUsers([...users])
+    setPublicAccess(users.length === 0)
     setUserSearch(''); setUserResults([])
+    const ns = cat.notificationSchedule
+    const _empty = { enabled: false, hour: 8, lineOaConfigId: '', targetId: '' }
+    setNotifDaily(ns?.daily   ? { ..._empty, ...ns.daily   } : _empty)
+    setNotifWeekly(ns?.weekly ? { ..._empty, ...ns.weekly  } : _empty)
+    setNotifWeeklyDay(ns?.weeklyDay  ?? 4)
+    setNotifMonthly(ns?.monthly ? { ..._empty, ...ns.monthly } : _empty)
+    setNotifMonthlyDay(ns?.monthlyDay ?? 1)
+    _loadLineOaConfigs()
     setShowModal(true)
   }
 
@@ -1371,7 +2060,11 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
     if (!name.trim()) { flash('err', 'กรุณาระส่ชื่อหมวด'); return }
     setSaving(true)
     try {
-      const payload = { name, color, icon, formula, order, fields, allowedRoles: [], allowedUsers }
+      const payload = { name, color, icon, formula, order, fields, allowedRoles: [], allowedUsers: publicAccess ? [] : allowedUsers,
+        notificationSchedule: {
+          daily: notifDaily, weekly: notifWeekly, weeklyDay: notifWeeklyDay,
+          monthly: notifMonthly, monthlyDay: notifMonthlyDay,
+        } }
       if (editingId) {
         await categoryApi.update(editingId, payload)
         flash('ok', 'อัปเดตหมวดสำเร็จ')
@@ -1424,7 +2117,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{cat.name}</span>
-                    <span style={{ fontSize: 11, color: '#94a3b8', background: '#f1f5f9', padding: '2px 8px', borderRadius: 10 }}>{cat.formula}</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8', background: '#f1f5f9', padding: '2px 8px', borderRadius: 10 }}>{FORMULA_LABELS[cat.formula] || cat.formula}</span>
                     <span style={{ fontSize: 11, color: '#94a3b8' }}>{cat.fields.length} ฟิลด์</span>
                     {(cat.allowedUsers?.length || 0) > 0 ? (
                       <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', padding: '2px 8px', borderRadius: 10 }}>
@@ -1472,36 +2165,78 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
                 </div>
                 <div>
                   <label className="form-label">สี</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {PRESET_COLORS.map(c => (
+                      <button key={c} onClick={() => setColor(c)}
+                        style={{ width: 28, height: 28, borderRadius: '50%', background: c, border: color === c ? `3px solid ${c}` : '2px solid white', outline: color === c ? `2px solid ${c}` : 'none', cursor: 'pointer', boxShadow: '0 1px 4px #0002', transition: 'transform 0.1s', transform: color === c ? 'scale(1.2)' : 'scale(1)' }} />
+                    ))}
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input type="color" value={color} onChange={e => setColor(e.target.value)}
-                      style={{ width: 40, height: 36, border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', padding: 2 }} />
+                      style={{ width: 36, height: 32, border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', padding: 2 }} />
                     <input type="text" className="form-input" value={color} onChange={e => setColor(e.target.value)} style={{ flex: 1 }} />
                   </div>
                 </div>
                 <div>
                   <label className="form-label">ไอคอน (Material Icons)</label>
-                  <input type="text" className="form-input" placeholder="receipt_long" value={icon} onChange={e => setIcon(e.target.value)} />
+                  <IconPicker value={icon} onChange={setIcon} />
                 </div>
-                <div>
-                  <label className="form-label">สูตรคำนวณ</label>
-                  <select className="form-input" value={formula} onChange={e => setFormula(e.target.value)}>
-                    {FORMULAS.map(f => <option key={f} value={f}>{f}</option>)}
-                  </select>
+                <div style={{ gridColumn: '1/-1' }}>
+                  <label className="form-label">รูปแบบการคำนวน</label>
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <select className="form-input" style={{ flex: 1 }} value={formula} onChange={e => {
+                        const newFormula = e.target.value;
+                        setFormula(newFormula);
+                        if (CATEGORY_TEMPLATES[newFormula]) {
+                          setFields(CATEGORY_TEMPLATES[newFormula].map(f => ({ ...f })));
+                        }
+                      }}>
+                        {FORMULAS.map(f => <option key={f} value={f}>{FORMULA_LABELS[f] || f}</option>)}
+                      </select>
+                      <button type="button"
+                        onMouseEnter={() => setFormulaTooltip(true)}
+                        onMouseLeave={() => setFormulaTooltip(false)}
+                        style={{ width: 32, height: 32, borderRadius: '50%', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#2563eb', cursor: 'default', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span className="material-icons-round" style={{ fontSize: 18 }}>info_outline</span>
+                      </button>
+                    </div>
+                    {formulaTooltip && (
+                      <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 300, background: '#1e293b', color: 'white', padding: '10px 14px', borderRadius: 10, fontSize: 12, lineHeight: 1.6, zIndex: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', pointerEvents: 'none' }}>
+                        <div style={{ fontWeight: 700, marginBottom: 4, color: '#93c5fd' }}>{FORMULA_LABELS[formula]}</div>
+                        {FORMULA_HINTS[formula]}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <label className="form-label">ลำดับแสดง</label>
-                  <input type="number" className="form-input" min="1" value={order} onChange={e => setOrder(parseInt(e.target.value) || 999)} />
+              </div>
+
+              {/* Preview UI — ใต้รูปแบบการคำนวน */}
+              <div style={{ marginBottom: 20, padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                <label className="form-label" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6, color: '#3b82f6' }}>
+                  <span className="material-icons-round" style={{ fontSize: 18 }}>visibility</span>
+                  ตัวอย่างฟอร์ม (ลองกรอกเพื่อทดสอบ)
+                </label>
+                <div style={{ background: 'white', padding: 8, borderRadius: 10 }}>
+                  <DynamicItemCard cat={previewCat} item={previewRow} idx={0} total={previewTotal} canDelete={false}
+                    onChange={(fId, v) => setPreviewRow(prev => ({ ...prev, [fId]: v }))}
+                    onDelete={() => {}} />
                 </div>
               </div>
 
               {/* Permission */}
               <div style={{ marginBottom: 20, padding: 16, background: '#f8fafc', borderRadius: 12 }}>
-                <label className="form-label" style={{ marginBottom: 10, display: 'block' }}>
-                  สิทธิ์การใช้งาน
-                  <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>(ไม่เลือกผู้ใช้ = ทุกคนเข้าถึงได้)</span>
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <label className="form-label" style={{ margin: 0 }}>สิทธิ์การกรอกข้อมูล</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: publicAccess ? '#059669' : '#475569', fontWeight: 500 }}>
+                    <input type="checkbox" checked={publicAccess}
+                      onChange={e => { setPublicAccess(e.target.checked); if (e.target.checked) setAllowedUsers([]) }}
+                      style={{ accentColor: '#059669' }} />
+                    ให้ทุกคนเข้าถึงได้
+                  </label>
+                </div>
                 {/* Selected users chips */}
-                {allowedUsers.length > 0 && (
+                {!publicAccess && allowedUsers.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
                     {allowedUsers.map(u => (
                       <span key={u} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 10px', borderRadius: 20, background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd' }}>
@@ -1514,91 +2249,172 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
                   </div>
                 )}
                 {/* Search box */}
-                <div style={{ position: 'relative' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 12px' }}>
-                    <span className="material-icons-round" style={{ fontSize: 16, color: '#94a3b8' }}>{searchingUsers ? 'hourglass_empty' : 'search'}</span>
-                    <input type="text" placeholder="ค้นหาชื่อหรือ username..." value={userSearch}
-                      onChange={e => searchUsers(e.target.value)}
-                      style={{ border: 'none', outline: 'none', flex: 1, fontSize: 13, background: 'transparent' }} />
-                    {userSearch && (
-                      <button onClick={() => { setUserSearch(''); setUserResults([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1 }}>×</button>
+                {!publicAccess && (
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 12px' }}>
+                      <span className="material-icons-round" style={{ fontSize: 16, color: '#94a3b8' }}>{searchingUsers ? 'hourglass_empty' : 'search'}</span>
+                      <input type="text" placeholder="ค้นหาชื่อหรือ username..." value={userSearch}
+                        onChange={e => searchUsers(e.target.value)}
+                        style={{ border: 'none', outline: 'none', flex: 1, fontSize: 13, background: 'transparent' }} />
+                      {userSearch && (
+                        <button onClick={() => { setUserSearch(''); setUserResults([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1 }}>×</button>
+                      )}
+                    </div>
+                    {userResults.length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px #0002', zIndex: 10, maxHeight: 200, overflowY: 'auto', marginTop: 4 }}>
+                        {userResults.map(u => (
+                          <button key={u.username} onClick={() => addAllowedUser(u.username)}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <span className="material-icons-round" style={{ fontSize: 16, color: '#7c3aed' }}>person</span>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{u.name?.trim() || u.username}</p>
+                              <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>@{u.username} · {u.role}</p>
+                            </div>
+                            {allowedUsers.includes(u.username) && (
+                              <span className="material-icons-round" style={{ fontSize: 16, color: '#7c3aed' }}>check_circle</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  {userResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px #0002', zIndex: 10, maxHeight: 200, overflowY: 'auto', marginTop: 4 }}>
-                      {userResults.map(u => (
-                        <button key={u.username} onClick={() => addAllowedUser(u.username)}
-                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <span className="material-icons-round" style={{ fontSize: 16, color: '#7c3aed' }}>person</span>
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{u.name?.trim() || u.username}</p>
-                            <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>@{u.username} · {u.role}</p>
-                          </div>
-                          {allowedUsers.includes(u.username) && (
-                            <span className="material-icons-round" style={{ fontSize: 16, color: '#7c3aed' }}>check_circle</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
+
+              {/* LINE OA Notification Schedule */}
+              {(() => {
+                // helper: render one report type section
+                function NotifSection({
+                  label, item, onItem, extra
+                }: {
+                  label: string
+                  item: { enabled: boolean; hour: number; lineOaConfigId: string; targetId: string }
+                  onItem: (v: typeof item) => void
+                  extra?: React.ReactNode
+                }) {
+                  const active = item.enabled
+                  return (
+                    <div style={{ borderRadius: 10, border: `1px solid ${active ? '#86efac' : '#e2e8f0'}`, background: active ? '#f0fdf4' : '#fafafa', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: active ? '#166534' : '#374151' }}>{label}</span>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={active} onChange={e => onItem({ ...item, enabled: e.target.checked })} style={{ accentColor: '#16a34a' }} />
+                          เปิด
+                        </label>
+                      </div>
+                      {active && (
+                        <div style={{ padding: '0 14px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {extra}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <label style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>ส่งเวลา</label>
+                            <select value={item.hour} onChange={e => onItem({ ...item, hour: parseInt(e.target.value) })}
+                              className="form-input" style={{ width: 110, fontSize: 12, padding: '5px 8px' }}>
+                              {Array.from({ length: 24 }, (_, h) => (
+                                <option key={h} value={h}>{String(h).padStart(2,'0')}:00 น.</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+                return (
+                  <div style={{ marginBottom: 20, padding: 14, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <span className="material-icons-round" style={{ fontSize: 18, color: '#16a34a' }}>chat_bubble_outline</span>
+                      <span className="form-label" style={{ margin: 0, color: '#166534', fontWeight: 700 }}>การแจ้งเตือน LINE OA</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <NotifSection label="รายวัน" item={notifDaily} onItem={setNotifDaily} />
+                      <NotifSection
+                        label="รายสัปดาห์"
+                        item={notifWeekly}
+                        onItem={setNotifWeekly}
+                        extra={
+                          <div style={{ display: 'flex', gap: 5 }}>
+                            {DAY_LABELS.map((d, i) => (
+                              <button key={i} type="button" onClick={() => setNotifWeeklyDay(i)}
+                                style={{ padding: '3px 8px', borderRadius: 14, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
+                                  background: notifWeeklyDay === i ? '#16a34a' : '#e2e8f0',
+                                  color: notifWeeklyDay === i ? 'white' : '#64748b' }}>
+                                {d}
+                              </button>
+                            ))}
+                          </div>
+                        }
+                      />
+                      <NotifSection
+                        label="รายเดือน"
+                        item={notifMonthly}
+                        onItem={setNotifMonthly}
+                        extra={
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <label style={{ fontSize: 12, color: '#64748b' }}>ส่งวันที่</label>
+                            <input type="number" min={1} max={28} value={notifMonthlyDay}
+                              onChange={e => setNotifMonthlyDay(Math.min(28, Math.max(1, parseInt(e.target.value) || 1)))}
+                              className="form-input" style={{ width: 70, fontSize: 12, padding: '5px 8px' }} />
+                            <span style={{ fontSize: 12, color: '#94a3b8' }}>ของเดือน (สูงสุด 28)</span>
+                          </div>
+                        }
+                      />
+                    </div>
+                    <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>
+                      ตั้งค่า LINE Group ID ได้ที่ <strong>IT Access → การเชื่อมต่อ → ระบบควบคุมค่าใช้จ่าย</strong>
+                    </p>
+                  </div>
+                )
+              })()}
 
               {/* Field Builder */}
               <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                   <label className="form-label" style={{ margin: 0 }}>ฟิลด์กรอกข้อมูล</label>
                   <button onClick={addField} style={{ padding: '5px 12px', borderRadius: 8, background: '#eff6ff', border: 'none', color: '#2563eb', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>เพิ่มฟิลด์
+                    <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>เพิ่มฟิลด์เสริม
                   </button>
                 </div>
-                {fields.map((f, idx) => (
-                  <div key={idx} style={{ marginBottom: 10, padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
-                      <div>
-                        <label className="form-label">ชื่อฟิลด์ (ID)</label>
-                        <input type="text" className="form-input" style={{ fontSize: 11 }} value={f.fieldId} onChange={e => updateField(idx, 'fieldId', e.target.value)} />
+                {fields.map((f, idx) => {
+                  const rCol = ROLE_COLORS_CALC[f.calcRole] || '#cbd5e1'
+                  return (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, padding: '8px 12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 8, background: rCol + '18', color: rCol, flexShrink: 0 }} title={`บทบาทการคำนวณ: ${ROLE_LABELS_CALC[f.calcRole] || f.calcRole}`}>
+                        <span className="material-icons-round" style={{ fontSize: 18 }}>{ROLE_ICONS_CALC[f.calcRole] || 'edit'}</span>
                       </div>
-                      <div>
-                        <label className="form-label">Label</label>
-                        <input type="text" className="form-input" style={{ fontSize: 11 }} value={f.label} onChange={e => updateField(idx, 'label', e.target.value)} />
+                      
+                      <div style={{ flex: 1, minWidth: 150 }}>
+                        <input type="text" className="form-input" style={{ fontSize: 13, padding: '7px 10px' }} placeholder="ชื่อฟิลด์ที่จะแสดงให้คนกรอกเห็น" value={f.label} onChange={e => updateField(idx, 'label', e.target.value)} />
                       </div>
-                      <div>
-                        <label className="form-label">ประเภท</label>
-                        <select className="form-input" style={{ fontSize: 11 }} value={f.type} onChange={e => updateField(idx, 'type', e.target.value)}>
-                          <option value="number">number</option>
-                          <option value="text">text</option>
-                          <option value="select">select</option>
-                        </select>
+
+                      <div style={{ width: 160 }}>
+                        {f.calcRole === 'qty' ? (
+                          <UnitSelect value={f.unit} onChange={v => updateField(idx, 'unit', v)} />
+                        ) : (
+                          <div style={{ padding: '6px 10px', fontSize: 13, color: '#64748b', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', minHeight: '34px', display: 'flex', alignItems: 'center' }}>
+                            {f.unit || '-'}
+                          </div>
+                        )}
                       </div>
-                      <div>
-                        <label className="form-label">หน่วย</label>
-                        <input type="text" className="form-input" style={{ fontSize: 11 }} placeholder="฿, กก., ..." value={f.unit} onChange={e => updateField(idx, 'unit', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="form-label">บทบาทคำนวณ</label>
-                        <select className="form-input" style={{ fontSize: 11 }} value={f.calcRole} onChange={e => updateField(idx, 'calcRole', e.target.value as CalcRole)}>
-                          {CALC_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS_CALC[r]}</option>)}
-                        </select>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, paddingBottom: 2 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={f.required} onChange={e => updateField(idx, 'required', e.target.checked)} />
-                          บังคับ
-                        </label>
+
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', width: 70, color: '#475569' }}>
+                        <input type="checkbox" checked={f.required} onChange={e => updateField(idx, 'required', e.target.checked)} />
+                        บังคับ
+                      </label>
+
+                      <div style={{ width: 28, display: 'flex', justifyContent: 'center' }}>
                         {fields.length > 1 && (
-                          <button onClick={() => removeField(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: 4 }}>
+                          <button onClick={() => removeField(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: 4, display: 'flex', alignItems: 'center' }}>
                             <span className="material-icons-round" style={{ fontSize: 18 }}>delete_outline</span>
                           </button>
                         )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
@@ -1660,6 +2476,232 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Executive Tab — Budget vs Actual รายปี ──────────────────────────────────
+const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+
+interface MonthData { month: number; budget: number; spent: number; variance: number; pct: number | null; future: boolean }
+interface CatYear {
+  id: string; name: string; color: string; icon: string
+  months: MonthData[]
+  ytdBudget: number; ytdSpent: number; ytdVariance: number; ytdPct: number | null; status: string
+}
+interface YearlyData {
+  year: number
+  categories: CatYear[]
+  grandTotal: { ytdBudget: number; ytdSpent: number; ytdVariance: number; ytdPct: number; status: string }
+}
+
+// สีมืออาชีพ: ไม่ใช้ emoji — ใช้ accent color เท่านั้น
+function pctStyle(pct: number | null, future: boolean): { bar: string; text: string; bg: string; label: string } {
+  if (future || pct === null) return { bar: 'transparent', text: '#94a3b8', bg: 'transparent', label: '—' }
+  if (pct > 100) return { bar: '#dc2626', text: '#dc2626', bg: '#fff5f5', label: `${pct}%` }
+  if (pct > 80)  return { bar: '#f59e0b', text: '#b45309', bg: '#fffbeb', label: `${pct}%` }
+  if (pct === 0) return { bar: '#e2e8f0', text: '#94a3b8', bg: 'transparent', label: '0%' }
+  return { bar: '#2563eb', text: '#1d4ed8', bg: '#eff6ff', label: `${pct}%` }
+}
+
+
+function ExecutiveTab() {
+  const thisYear = new Date().getFullYear()
+  const [year, setYear] = useState(thisYear)
+  const [data, setData] = useState<YearlyData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<{ cat: CatYear; m: MonthData } | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    budgetApi.getYearly(year)
+      .then(r => setData(r as YearlyData))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false))
+  }, [year])
+
+  const yearOptions = Array.from({ length: 5 }, (_, i) => thisYear - 2 + i)
+
+  return (
+    <div>
+      {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Budget vs Actual</p>
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>เปรียบเทียบงบประมาณกับยอดจริงรายเดือน</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Legend inline */}
+          {[['#2563eb','< 80%'],['#f59e0b','80–100%'],['#dc2626','> 100%']].map(([c,l]) => (
+            <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: 'inline-block' }} />{l}
+            </span>
+          ))}
+          <div style={{ width: 1, height: 16, background: '#e2e8f0', margin: '0 4px' }} />
+          <span style={{ fontSize: 12, color: '#64748b' }}>ปี</span>
+          <select style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '5px 10px', fontSize: 13, color: '#1e293b', background: '#fff', cursor: 'pointer' }}
+            value={year} onChange={e => setYear(Number(e.target.value))}>
+            {yearOptions.map(y => <option key={y} value={y}>{y + 543}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0' }}>
+          <span className="material-icons-round spin text-blue-400" style={{ fontSize: 36 }}>refresh</span>
+        </div>
+      ) : !data || data.categories.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '80px 0', color: '#94a3b8', fontSize: 14 }}>
+          <span className="material-icons-round" style={{ fontSize: 44, display: 'block', marginBottom: 8, color: '#cbd5e1' }}>table_chart</span>
+          ยังไม่มีข้อมูลสำหรับปี {year + 543}
+        </div>
+      ) : (
+        <>
+          {/* ── Main Table ─────────────────────────────────────────────────── */}
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: 1 }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', color: '#475569', fontWeight: 600, fontSize: 11, minWidth: 160, background: '#f8fafc', position: 'sticky', left: 0, zIndex: 2, whiteSpace: 'nowrap' }}>หมวดหมู่</th>
+                    {THAI_MONTHS_SHORT.map((m, i) => (
+                      <th key={i} style={{ padding: '11px 4px', textAlign: 'center', color: '#64748b', fontWeight: 500, fontSize: 11, minWidth: 64, background: '#f8fafc', whiteSpace: 'nowrap' }}>{m}</th>
+                    ))}
+                    <th style={{ padding: '11px 14px', textAlign: 'right', color: '#475569', fontWeight: 600, fontSize: 11, minWidth: 110, background: '#f8fafc', whiteSpace: 'nowrap' }}>YTD ใช้ (฿)</th>
+                    <th style={{ padding: '11px 14px', textAlign: 'right', color: '#475569', fontWeight: 600, fontSize: 11, minWidth: 110, background: '#f8fafc', whiteSpace: 'nowrap' }}>งบ YTD (฿)</th>
+                    <th style={{ padding: '11px 14px', textAlign: 'right', color: '#475569', fontWeight: 600, fontSize: 11, minWidth: 110, background: '#f8fafc', whiteSpace: 'nowrap' }}>±คงเหลือ (฿)</th>
+                    <th style={{ padding: '11px 14px', textAlign: 'center', color: '#475569', fontWeight: 600, fontSize: 11, minWidth: 64, background: '#f8fafc', whiteSpace: 'nowrap' }}>% ใช้</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.categories.map((cat, ri) => {
+                    const ytdPs = pctStyle(cat.ytdPct, false)
+                    const rowBg = ri % 2 === 0 ? '#fff' : '#fafafa'
+                    return (
+                      <tr key={cat.id} style={{ borderBottom: '1px solid #f1f5f9', background: rowBg }}>
+                        {/* Category */}
+                        <td style={{ padding: '10px 16px', position: 'sticky', left: 0, background: rowBg, zIndex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ width: 3, height: 28, borderRadius: 2, background: cat.color, flexShrink: 0 }} />
+                            <span className="material-icons-round" style={{ fontSize: 15, color: cat.color }}>{cat.icon}</span>
+                            <span style={{ fontWeight: 600, color: '#1e293b', fontSize: 12 }}>{cat.name}</span>
+                          </div>
+                        </td>
+                        {/* Month cells */}
+                        {cat.months.map(m => {
+                          const ps = pctStyle(m.pct, m.future)
+                          const isEmpty = m.budget === 0 && m.spent === 0
+                          return (
+                            <td key={m.month} style={{ padding: '6px 3px', textAlign: 'center', cursor: isEmpty || m.future ? 'default' : 'pointer' }}
+                              onClick={() => !isEmpty && !m.future && setSelected(s => s?.cat.id === cat.id && s?.m.month === m.month ? null : { cat, m })}>
+                              {isEmpty || m.future ? (
+                                <span style={{ color: '#e2e8f0', fontSize: 11 }}>—</span>
+                              ) : (
+                                <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '4px 6px', borderRadius: 5,
+                                  background: selected?.cat.id === cat.id && selected?.m.month === m.month ? ps.bg : 'transparent',
+                                  border: selected?.cat.id === cat.id && selected?.m.month === m.month ? `1px solid ${ps.bar}` : '1px solid transparent',
+                                  transition: 'all 0.1s' }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: ps.text, fontVariantNumeric: 'tabular-nums' }}>{ps.label}</span>
+                                  {/* mini bar */}
+                                  <div style={{ width: 40, height: 3, borderRadius: 2, background: '#e2e8f0', overflow: 'hidden' }}>
+                                    <div style={{ height: '100%', width: `${Math.min(100, m.pct ?? 0)}%`, background: ps.bar, borderRadius: 2 }} />
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                          )
+                        })}
+                        {/* YTD summary */}
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#0f172a', fontSize: 12, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                          ฿{fmt(cat.ytdSpent)}
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', color: '#64748b', fontSize: 12, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                          ฿{fmt(cat.ytdBudget)}
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap',
+                          color: cat.ytdVariance >= 0 ? '#16a34a' : '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
+                          {cat.ytdVariance >= 0 ? '+' : ''}฿{fmt(cat.ytdVariance)}
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                          <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700,
+                            background: ytdPs.bg || '#f1f5f9', color: ytdPs.text, fontVariantNumeric: 'tabular-nums',
+                            border: `1px solid ${cat.ytdPct !== null && cat.ytdPct > 100 ? '#fecaca' : cat.ytdPct !== null && cat.ytdPct > 80 ? '#fde68a' : '#dbeafe'}` }}>
+                            {cat.ytdPct === null ? '—' : `${cat.ytdPct}%`}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                {/* Grand total footer */}
+                <tfoot>
+                  {(() => {
+                    const g = data.grandTotal
+                    const gPs = pctStyle(g.ytdPct, false)
+                    return (
+                      <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                        <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a', fontSize: 12, position: 'sticky', left: 0, background: '#f8fafc', zIndex: 1 }}>รวมทั้งปี</td>
+                        {Array.from({ length: 12 }, (_, i) => <td key={i} />)}
+                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: 13, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>฿{fmt(g.ytdSpent)}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', color: '#475569', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>฿{fmt(g.ytdBudget)}</td>
+                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
+                          color: g.ytdVariance >= 0 ? '#15803d' : '#b91c1c', fontVariantNumeric: 'tabular-nums' }}>
+                          {g.ytdVariance >= 0 ? '+' : ''}฿{fmt(g.ytdVariance)}
+                        </td>
+                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                          <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 4, fontSize: 12, fontWeight: 800,
+                            background: gPs.bg || '#f1f5f9', color: gPs.text,
+                            border: `1px solid ${g.ytdPct > 100 ? '#fecaca' : g.ytdPct > 80 ? '#fde68a' : '#dbeafe'}` }}>
+                            {g.ytdPct}%
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })()}
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* ── Detail panel (กดเซลล์แล้ว expand ด้านล่าง) ─────────────── */}
+          {selected && (
+            <div style={{ border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', background: '#fff', padding: '16px 24px', display: 'flex', gap: 32, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p style={{ margin: '0 0 2px', fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{selected.cat.name} · {THAI_MONTHS_SHORT[selected.m.month - 1]} {year + 543}</p>
+                <div style={{ display: 'flex', gap: 32, marginTop: 8 }}>
+                  {[['งบประมาณ', selected.m.budget, '#475569'],['ใช้จริง', selected.m.spent, '#0f172a'],['±คงเหลือ', selected.m.variance, selected.m.variance >= 0 ? '#15803d' : '#b91c1c']].map(([l,v,c]) => (
+                    <div key={l as string}>
+                      <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>{l as string}</p>
+                      <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: c as string, fontVariantNumeric: 'tabular-nums' }}>
+                        {(l as string).startsWith('±') && (v as number) >= 0 ? '+' : ''}฿{fmt(v as number)}
+                      </p>
+                    </div>
+                  ))}
+                  {selected.m.pct !== null && (
+                    <div>
+                      <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>% ใช้งบ</p>
+                      <p style={{ margin: 0, fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+                        color: selected.m.pct > 100 ? '#b91c1c' : selected.m.pct > 80 ? '#b45309' : '#1d4ed8' }}>
+                        {selected.m.pct}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {selected.m.budget > 0 && (
+                  <div style={{ marginTop: 10, width: 280, height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, selected.m.pct ?? 0)}%`,
+                      background: (selected.m.pct ?? 0) > 100 ? '#dc2626' : (selected.m.pct ?? 0) > 80 ? '#f59e0b' : '#2563eb',
+                      borderRadius: 3, transition: 'width 0.3s' }} />
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setSelected(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}>
+                <span className="material-icons-round" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

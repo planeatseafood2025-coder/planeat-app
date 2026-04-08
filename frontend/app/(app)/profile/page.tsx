@@ -19,6 +19,7 @@ export default function ProfilePage() {
   const [nickname, setNickname] = useState('')
   const [phone, setPhone] = useState('')
   const [lineId, setLineId] = useState('')
+  const [lineNotifyToken, setLineNotifyToken] = useState('')
   const [jobTitle, setJobTitle] = useState('')
 
   // Signature
@@ -41,6 +42,7 @@ export default function ProfilePage() {
         setNickname(r.user.nickname || '')
         setPhone(r.user.phone || '')
         setLineId(r.user.lineId || '')
+        setLineNotifyToken((r.user as User & { lineNotifyToken?: string }).lineNotifyToken || '')
         setJobTitle(r.user.jobTitle || '')
       }
     }).catch(() => {
@@ -66,7 +68,7 @@ export default function ProfilePage() {
   async function saveInfo() {
     setSaving(true)
     try {
-      await profileApi.updateMe({ firstName, lastName, nickname, phone, lineId, jobTitle })
+      await profileApi.updateMe({ firstName, lastName, nickname, phone, lineId, lineNotifyToken, jobTitle })
       // Update session
       const s = getSession()
       if (s) {
@@ -260,7 +262,7 @@ export default function ProfilePage() {
     if (!Object.values(reqPerms).some(Boolean)) { flash('err', 'กรุณาเลือกสิทธิ์ที่ต้องการ'); return }
     setSaving(true)
     try {
-      await profileApi.requestPermission(reqPerms, permReason)
+      await profileApi.requestPermission(reqPerms as unknown as Record<string, boolean>, permReason)
       flash('ok', 'ส่งคำขอสิทธิ์แล้ว ระบบจะแจ้งเตือนผู้จัดการไอที')
       setReqPerms({ labor: false, raw: false, chem: false, repair: false })
       setPermReason('')
@@ -346,7 +348,7 @@ export default function ProfilePage() {
                   { label: 'นามสกุล', val: lastName, set: setLastName },
                   { label: 'ชื่อเล่น', val: nickname, set: setNickname },
                   { label: 'เบอร์โทร', val: phone, set: setPhone },
-                  { label: 'Line ID', val: lineId, set: setLineId },
+                  { label: 'Line ID (ชื่อแสดงผล)', val: lineId, set: setLineId },
                   { label: 'ตำแหน่งงาน', val: jobTitle, set: setJobTitle },
                 ].map(({ label, val, set }) => (
                   <div key={label}>
@@ -359,6 +361,23 @@ export default function ProfilePage() {
                     />
                   </div>
                 ))}
+              </div>
+
+              {/* LINE Notify Token */}
+              <div style={{ marginTop: 16, padding: 16, background: '#f0fdf4', borderRadius: 12, border: '1px solid #bbf7d0' }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#15803d', marginBottom: 6 }}>
+                  LINE Notify Token (สำหรับรับแจ้งเตือนส่วนตัว)
+                </label>
+                <input
+                  type="text"
+                  value={lineNotifyToken}
+                  onChange={e => setLineNotifyToken(e.target.value)}
+                  placeholder="วาง token ที่ได้จาก notify-bot.line.me..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #86efac', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'white' }}
+                />
+                <p style={{ margin: '8px 0 0', fontSize: 11, color: '#16a34a' }}>
+                  วิธีรับ Token: ไปที่ notify-bot.line.me → เข้าสู่ระบบ → "สร้าง token" → เลือก "1:1" → คัดลอก token มาวางที่นี่
+                </p>
               </div>
               <button
                 onClick={saveInfo}

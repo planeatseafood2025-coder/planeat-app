@@ -3,6 +3,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import type { User } from '@/types'
 import { PAGE_ACCESS, ROLE_LABELS } from '@/types'
+import PlaNeatLogo from '@/components/PlaNeatLogo'
 
 interface NavItem {
   page: string
@@ -21,7 +22,6 @@ const NAV: NavSection[] = [
     label: 'การเงิน',
     items: [
       { page: 'expense-control',  label: 'ระบบควบคุมค่าใช้จ่าย',    icon: 'receipt_long' },
-      { page: 'budget',           label: 'งบประมาณ',                 icon: 'account_balance_wallet' },
     ],
   },
   {
@@ -30,6 +30,14 @@ const NAV: NavSection[] = [
       { page: 'employees',  label: 'ข้อมูลพนักงาน',       icon: 'groups',       soon: true },
       { page: 'inventory',  label: 'คลังสินค้า',           icon: 'inventory_2' },
       { page: 'documents',  label: 'เอกสาร',               icon: 'folder_open',  soon: true },
+    ],
+  },
+  {
+    label: 'ลูกค้าสัมพันธ์',
+    items: [
+      { page: 'customers',                label: 'ลูกค้า (CRM)',         icon: 'contacts' },
+      { page: 'customers/segments',       label: 'กลุ่มลูกค้า',          icon: 'label' },
+      { page: 'customers/connections',    label: 'การเชื่อมต่อการตลาด',  icon: 'hub' },
     ],
   },
   {
@@ -97,15 +105,7 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
           {!collapsed && (
-            <div className="flex items-center gap-2">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center"
-                style={{ background: 'rgba(255,255,255,0.15)' }}
-              >
-                <span className="material-icons-round text-white" style={{ fontSize: 18 }}>corporate_fare</span>
-              </div>
-              <span className="sidebar-text text-white font-bold text-sm">PlaNeat</span>
-            </div>
+            <PlaNeatLogo size="sm" showText={true} />
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}

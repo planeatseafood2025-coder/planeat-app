@@ -1,14 +1,24 @@
 from fastapi import APIRouter, Query, Depends, HTTPException
 from typing import Optional
+from datetime import datetime, timezone, timedelta
 from ..models.expense import SaveExpenseRequest
 from ..services.expense_service import (
     save_expense, get_expenses, get_monthly_analysis,
     submit_draft, get_drafts, approve_draft, reject_draft, get_expense_history,
     submit_draft_dynamic, approve_draft_dynamic, get_monthly_analysis_dynamic,
+    submit_draft_dynamic_public,
     ACCOUNTING_ROLES,
 )
 from ..deps import get_current_user
+from ..database import get_db
 from pydantic import BaseModel
+
+
+class EditExpenseRequest(BaseModel):
+    date: Optional[str] = None
+    amount: Optional[float] = None
+    detail: Optional[str] = None
+    note: Optional[str] = None
 
 router = APIRouter(prefix="/api", tags=["expenses"])
 
@@ -54,7 +64,15 @@ async def do_approve(draft_id: str, current: dict = Depends(get_current_user)):
     if current.get("role") not in ACCOUNTING_ROLES:
         raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์อนุมัติรายการ")
     try:
-        return await approve_draft(draft_id, current)
+        result = await approve_draft(draft_id, current)
+        # แจ้งเตือน LINE ส่วนตัว accounting_manager
+        try:
+            from ..services.line_notify_service import notify_expense_approved
+            expense = result.get("expense") or {}
+            await notify_expense_approved(expense, current)
+        except Exception as e:
+            print(f"[LINE notify] approve: {e}")
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -82,12 +100,27 @@ async def create_draft_dynamic(req: SaveExpenseRequest, current: dict = Depends(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/expenses/draft/public")
+async def create_draft_public(req: SaveExpenseRequest):
+    try:
+        return await submit_draft_dynamic_public(req.dict())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.put("/expenses/drafts/{draft_id}/approve/dynamic")
 async def do_approve_dynamic(draft_id: str, current: dict = Depends(get_current_user)):
     if current.get("role") not in ACCOUNTING_ROLES:
         raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์อนุมัติรายการ")
     try:
-        return await approve_draft_dynamic(draft_id, current)
+        result = await approve_draft_dynamic(draft_id, current)
+        try:
+            from ..services.line_notify_service import notify_expense_approved
+            expense = result.get("expense") or {}
+            await notify_expense_approved(expense, current)
+        except Exception as e:
+            print(f"[LINE notify] approve_dynamic: {e}")
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -102,3 +135,61 @@ async def expense_history(
     _current: dict = Depends(get_current_user),
 ):
     return await get_expense_history(monthYear, catKey, search, page, perPage)
+
+
+def _check_editable(expense: dict):
+    """ตรวจสอบว่ารายการยังอยู่ในระยะแก้ไขได้ (ไม่เกิน 3 วัน)"""
+    created_raw = expense.get("createdAt") or expense.get("approvedAt", "")
+    if not created_raw:
+        return  # ไม่มีวันที่ → อนุญาตให้แก้ไข (legacy records)
+    try:
+        if created_raw.endswith("Z"):
+            created_raw = created_raw[:-1] + "+00:00"
+        created_at = datetime.fromisoformat(created_raw)
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - created_at > timedelta(days=3):
+            raise HTTPException(status_code=403, detail="ไม่สามารถแก้ไขรายการที่เกิน 3 วันได้")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # parse ไม่ได้ → อนุญาต
+
+
+@router.put("/expenses/{expense_id}")
+async def edit_expense(expense_id: str, req: EditExpenseRequest, current: dict = Depends(get_current_user)):
+    if current.get("role") not in ACCOUNTING_ROLES:
+        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์แก้ไขรายการ")
+    db = get_db()
+    expense = await db.expenses.find_one({"_id": expense_id})
+    if not expense:
+        raise HTTPException(status_code=404, detail="ไม่พบรายการนี้")
+    _check_editable(expense)
+    updates: dict = {}
+    if req.date is not None:
+        updates["date"] = req.date
+    if req.amount is not None:
+        updates["amount"] = req.amount
+    if req.detail is not None:
+        updates["detail"] = req.detail
+    if req.note is not None:
+        updates["note"] = req.note
+    if not updates:
+        raise HTTPException(status_code=400, detail="ไม่มีข้อมูลที่จะแก้ไข")
+    updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    updates["updatedBy"] = current.get("sub", "")
+    await db.expenses.update_one({"_id": expense_id}, {"$set": updates})
+    return {"success": True, "message": "แก้ไขรายการสำเร็จ"}
+
+
+@router.delete("/expenses/{expense_id}")
+async def delete_expense(expense_id: str, current: dict = Depends(get_current_user)):
+    if current.get("role") not in ACCOUNTING_ROLES:
+        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์ลบรายการ")
+    db = get_db()
+    expense = await db.expenses.find_one({"_id": expense_id})
+    if not expense:
+        raise HTTPException(status_code=404, detail="ไม่พบรายการนี้")
+    _check_editable(expense)
+    await db.expenses.delete_one({"_id": expense_id})
+    return {"success": True, "message": "ลบรายการสำเร็จ"}

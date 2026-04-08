@@ -20,7 +20,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [showProfile, setShowProfile] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
   const profileRef = useRef<HTMLDivElement>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sseRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     const session = getSession()
@@ -43,9 +43,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) return
+    // โหลดครั้งแรกทันที (fallback กรณี SSE ยังไม่เชื่อม)
     loadNotifications()
-    pollRef.current = setInterval(loadNotifications, 30000)
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+    // เชื่อม SSE แทน polling
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''
+    const es = new EventSource(`/api/sse/notifications?token=${encodeURIComponent(token)}`)
+    es.addEventListener('notification', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        setNotifications(data.notifications || [])
+        setUnread(data.unread || 0)
+      } catch {}
+    })
+    es.onerror = () => {
+      // SSE error → fallback to polling ทุก 30s
+      es.close()
+      const id = setInterval(loadNotifications, 30000)
+      sseRef.current = null
+      return () => clearInterval(id)
+    }
+    sseRef.current = es
+    return () => { es.close(); sseRef.current = null }
   }, [user, loadNotifications])
 
   // Close dropdowns on outside click

@@ -59,6 +59,49 @@ export interface NotificationsResponse {
   unread: number
 }
 
+// ─── Settings / IT Connections ────────────────────────────────────
+export interface MainLineOA {
+  token: string
+  channelId: string
+  channelSecret: string
+  targetId: string
+}
+
+export interface LineOASetting {
+  id: string
+  category: string
+  name: string
+  token: string
+  channelId: string
+  channelSecret: string
+  mode: 'receive' | 'send' | 'both'
+  targetId: string
+}
+
+export interface ModuleConnections {
+  expense:        string   // LINE Group ID สำหรับค่าใช้จ่าย
+  expenseName:    string   // ชื่อกลุ่ม
+  inventory:      string   // LINE Group ID สำหรับคลัง
+  inventoryName:  string
+  crm:            string   // LINE Group ID สำหรับ CRM
+  crmName:        string
+  access:         string   // LINE Group ID สำหรับ Access Control
+  accessName:     string
+}
+
+export interface SystemSettings {
+  mainLineOa?: MainLineOA | null
+  lineOaConfigs: LineOASetting[]
+  moduleConnections?: ModuleConnections
+  smtpEmail?: string
+  smtpPassword?: string
+  smtpServer?: string
+  smtpPort?: number
+  budgetReminderEnabled?: boolean
+  budgetReminderMessageDay30?: string
+  budgetReminderMessageDay4?: string
+}
+
 // ─── Chat ─────────────────────────────────────────────────────────
 export interface ChatMessage {
   id: string
@@ -231,6 +274,7 @@ export interface UserRecord {
   lastName?: string
   nickname?: string
   phone?: string
+  email?: string
   lineId?: string
   jobTitle?: string
   role: Role
@@ -288,6 +332,78 @@ export const PAGE_ACCESS: Record<string, Role[]> = {
   reports:             ['super_admin','it_manager','accounting_manager','admin'],
   'it-access':         ['super_admin','it_manager','it_support','admin'],
   chat:                ALL_ROLES,
+  customers:           ['super_admin','it_manager','accounting_manager','marketing_manager','marketing_staff','admin'],
+}
+
+// ─── CRM Workspace ───────────────────────────────────────────────
+export interface CrmWorkspace {
+  id: string
+  name: string
+  description?: string
+  color: string
+  icon: string
+  lineOaConfigId?: string
+  memberUsernames: string[]
+  createdAt: string
+  createdBy: string
+}
+
+export interface WorkspacesResponse {
+  workspaces: CrmWorkspace[]
+}
+
+// ─── Customer (CRM) ──────────────────────────────────────────────
+export interface ContactPerson {
+  name: string
+  position?: string
+  phone?: string
+  email?: string
+  lineId?: string
+}
+
+export type CustomerSource = 'manual' | 'line_oa' | 'facebook' | 'instagram' | 'google_sheets' | 'tiktok' | 'shopee'
+
+export interface CustomerSegment {
+  id: string
+  workspaceId: string
+  name: string
+  description?: string
+  color: string
+  icon: string
+  customerCount?: number
+  createdAt: string
+  createdBy: string
+}
+
+export interface Customer {
+  id: string
+  workspaceId: string
+  name: string
+  type: 'B2B' | 'B2C'
+  email?: string
+  phone?: string
+  lineUid?: string
+  lineDisplayName?: string
+  linePictureUrl?: string
+  tags: string[]
+  segmentIds: string[]
+  company?: string
+  address?: string
+  note?: string
+  contacts: ContactPerson[]
+  source: CustomerSource
+  sourceRef?: string
+  status: 'active' | 'inactive'
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+}
+
+export interface CustomersResponse {
+  customers: Customer[]
+  total: number
+  page: number
+  totalPages: number
 }
 
 // ─── Warehouse ───────────────────────────────────────────────────
@@ -378,6 +494,7 @@ export const PAGE_TITLES: Record<string, string> = {
   reports:    'รายงาน',
   'it-access':'Access Control',
   chat:       'แชท',
+  customers:  'ลูกค้า (CRM)',
   settings:   'ตั้งค่าระบบ',
   profile:    'โปรไฟล์ของฉัน',
 }
@@ -426,6 +543,22 @@ export const ROLE_COLORS: Record<Role, { bg: string; color: string }> = {
   viewer:               { bg: '#f1f5f9', color: '#64748b' },
 }
 
+// ─── Notification Schedule ───────────────────────────────────────
+export interface ReportScheduleItem {
+  enabled: boolean
+  hour: number
+  lineOaConfigId: string
+  targetId: string
+}
+
+export interface NotificationSchedule {
+  daily: ReportScheduleItem
+  weekly: ReportScheduleItem
+  weeklyDay: number    // 0=Mon, 4=Fri
+  monthly: ReportScheduleItem
+  monthlyDay: number   // 1-28
+}
+
 // ─── Dynamic Categories ──────────────────────────────────────────
 export type CalcRole = 'qty' | 'price' | 'addend' | 'fixed' | 'note' | 'none'
 export type FieldType = 'number' | 'text' | 'select'
@@ -454,6 +587,7 @@ export interface ExpenseCategory {
   isActive: boolean
   createdAt: string
   createdBy: string
+  notificationSchedule?: NotificationSchedule
 }
 
 export interface CategoriesResponse {
@@ -524,6 +658,7 @@ export interface ExpenseRecord {
   approverLineId?: string
   approvedAt?: string
   draftId?: string
+  createdAt?: string
 }
 
 export interface DraftsResponse {
@@ -539,4 +674,37 @@ export interface ExpenseHistoryResponse {
   page: number
   perPage: number
   totalPages: number
+}
+
+// ─── Sales Pipeline (Deals & Activities) ─────────────────────────
+export type DealStage = 'lead' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost'
+
+export interface Deal {
+  id: string
+  title: string
+  customerId: string
+  value: number
+  stage: DealStage
+  probability: number
+  assignedTo?: string
+  expectedCloseDate?: string
+  source?: string
+  note?: string
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+}
+
+export type ActivityType = 'note' | 'call' | 'email' | 'meeting' | 'line'
+
+export interface CustomerActivity {
+  id: string
+  targetId: string
+  targetType: 'customer' | 'deal'
+  type: ActivityType
+  description: string
+  performedBy: string
+  datetime: string
+  createdAt: string
+  updatedAt?: string
 }

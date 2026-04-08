@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from ..models.user import (
     LoginRequest, LoginResponse,
-    RegisterRequest, ForgotPasswordRequest,
+    RegisterRequest, RequestRegisterOTPRequest, ForgotPasswordRequest,
     VerifyOTPRequest, ResetPasswordRequest,
 )
 from ..services.auth_service import (
@@ -46,9 +46,39 @@ async def register(req: RegisterRequest):
     return result
 
 
+@router.post("/request-register-otp")
+async def request_register_otp_endpoint(req: RequestRegisterOTPRequest):
+    from ..services.auth_service import request_register_otp
+    result = await request_register_otp(req.email, req.firstName)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/request-line-otp")
+async def request_line_otp_endpoint(req: RequestRegisterOTPRequest):
+    """สร้าง OTP สำหรับยืนยันผ่าน LINE OA — คืน sessionId + OTP code"""
+    from ..services.auth_service import request_line_otp
+    result = await request_line_otp(req.email, req.firstName)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.get("/line-session/{session_id}")
+async def check_line_session(session_id: str):
+    """ตรวจสอบสถานะ LINE OTP session (ใช้โดย frontend polling fallback)"""
+    from ..database import get_db
+    db = get_db()
+    session = await db.registration_sessions.find_one({"_id": session_id}, {"otp": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="ไม่พบ session")
+    return {"status": session.get("status", "pending"), "lineUid": session.get("lineUid", "")}
+
+
 @router.post("/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest):
-    result = await send_otp(req.phone)
+    result = await send_otp(req.username)
     if not result["success"]:
         raise HTTPException(status_code=404, detail=result["message"])
     return result
@@ -56,7 +86,7 @@ async def forgot_password(req: ForgotPasswordRequest):
 
 @router.post("/verify-otp")
 async def verify_otp_endpoint(req: VerifyOTPRequest):
-    result = await verify_otp(req.phone, req.otp)
+    result = await verify_otp(req.username, req.otp)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return result
@@ -64,7 +94,7 @@ async def verify_otp_endpoint(req: VerifyOTPRequest):
 
 @router.post("/reset-password")
 async def reset_password_endpoint(req: ResetPasswordRequest):
-    result = await reset_password(req.phone, req.otp, req.newPassword)
+    result = await reset_password(req.username, req.otp, req.newPassword)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return result

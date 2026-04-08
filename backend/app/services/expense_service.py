@@ -352,10 +352,17 @@ async def reject_draft(draft_id: str, reason: str, current: dict) -> dict:
         "data": {"draftId": draft_id, "reason": reason},
     })
 
-    # [PORT] LINE Notify recorder — เตรียมไว้สำหรับเชื่อมต่อภายหลัง
-    # recorder_line_id = draft.get("recorderLineId", "")
-    # if recorder_line_id:
-    #     await send_line_notify(recorder_line_id, f"รายการของคุณไม่ผ่านการอนุมัติ\nเหตุผล: {reason}")
+    # ── Rejection email ───────────────────────────────────────────────────────
+    try:
+        db2 = get_db()
+        smtp_doc = await db2.system_settings.find_one({"_id": "system_settings"}) or {}
+        recorder_user = await db2.users.find_one({"username": draft["recorder"]}, {"_id": 0, "email": 1})
+        recorder_email = recorder_user.get("email", "") if recorder_user else ""
+        if recorder_email:
+            from .email_service import send_rejection_email
+            await send_rejection_email(recorder_email, draft["recorderName"], draft["category"], draft["date"], reason, smtp_doc)
+    except Exception as _e:
+        print(f"[Reject] Email failed: {_e}")
 
     return {"success": True, "message": "ปฏิเสธรายการแล้ว"}
 
@@ -437,6 +444,78 @@ async def submit_draft_dynamic(payload: dict, current: dict) -> dict:
     return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
 
 
+async def submit_draft_dynamic_public(payload: dict) -> dict:
+    """Submit draft using dynamic category without auth (standalone page)."""
+    db = get_db()
+    # For public submission, the username comes from payload, not JWT
+    recorder_name = payload.get("username", "ไม่ได้ระบุชื่อ")
+    username = recorder_name # Use as username as well
+
+    cat_id = payload.get("catId", "")
+    cat = await get_category_by_id(cat_id)
+    if not cat:
+        raise ValueError(f"ไม่พบหมวด: {cat_id}")
+
+    date_str = payload.get("date", "")
+    rows = payload.get("rows", [])
+
+    total = 0.0
+    details = []
+    for row in rows:
+        t, d = calc_total_dynamic(cat, row)
+        total += t
+        if d:
+            details.append(d)
+
+    now = datetime.now(timezone.utc)
+    draft = {
+        "_id": str(uuid.uuid4()),
+        "recorder": username,
+        "recorderName": recorder_name,
+        "recorderLineId": "",
+        "date": date_str,
+        "date_iso": thai_date_to_iso(date_str),
+        "category": cat["name"],
+        "catKey": cat_id,
+        "rows": rows,
+        "total": total,
+        "detail": ", ".join(details),
+        "note": payload.get("note", ""),
+        "status": "pending",
+        "submittedAt": now.isoformat(),
+        "reviewedBy": None,
+        "reviewedAt": None,
+        "rejectReason": "",
+        "approvedExpenseIds": [],
+    }
+    await db.expense_drafts.insert_one(draft)
+
+    # Notify accounting managers
+    admins = await db.users.find(
+        {"role": {"$in": ACCOUNTING_ROLES}, "status": "active"},
+        {"username": 1}
+    ).to_list(50)
+    notifs = []
+    for admin in admins:
+        if admin["username"] == username:
+            continue
+        notifs.append({
+            "id": str(uuid.uuid4()),
+            "recipientUsername": admin["username"],
+            "senderUsername": username,
+            "type": "expense_draft",
+            "title": "รายการใหม่จากพนักงาน (Standalone)",
+            "body": f"{recorder_name} ส่งรายการ{cat['name']} วันที่ {date_str} ยอด ฿{total:,.0f} รอการอนุมัติ",
+            "read": False,
+            "createdAt": now,
+            "data": {"draftId": draft["_id"]},
+        })
+    if notifs:
+        await db.notifications.insert_many(notifs)
+
+    return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
+
+
 async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
     """Approve draft — supports both legacy and dynamic categories."""
     db = get_db()
@@ -505,8 +584,56 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
         "data": {"draftId": draft_id},
     })
 
-    # [PORT] LINE Group
-    # await send_line_group(f"✅ อนุมัติแล้ว\n{draft['recorderName']} | {draft['category']} | {draft['date']} | ฿{draft['total']:,.0f}\nโดย: {approver_name}")
+    # ── Email + PDF + LINE OA ─────────────────────────────────────────────────
+    try:
+        db2 = get_db()
+        smtp_doc = await db2.system_settings.find_one({"_id": "system_settings"}) or {}
+
+        # Fetch recorder email
+        recorder_user = await db2.users.find_one({"username": draft["recorder"]}, {"_id": 0, "email": 1})
+        recorder_email = recorder_user.get("email", "") if recorder_user else ""
+
+        if recorder_email:
+            from .email_service import send_approval_email
+            # PDF link: generate on-the-fly and store
+            from .report_service import build_report_data
+            from .pdf_service import generate_expense_report_pdf
+            from ..routers.reports import _pdf_store, _pdf_save, _pdf_path
+            import uuid as _uuid
+            try:
+                report_data = await build_report_data(cat_id, "daily", now)
+                pdf_bytes = generate_expense_report_pdf(report_data)
+                report_id = str(_uuid.uuid4())
+                _pdf_save(report_id, pdf_bytes)
+                _pdf_store[report_id] = _pdf_path(report_id)
+                pdf_url = f"/api/reports/download/{report_id}"
+            except Exception as _e:
+                print(f"[Approve] PDF gen failed: {_e}")
+                pdf_url = ""
+            await send_approval_email(recorder_email, draft["recorderName"], draft["category"], draft["date"], draft["total"], pdf_url, smtp_doc)
+
+        # ── ส่ง LINE OA หลังอนุมัติ (ใช้ mainLineOa + moduleConnections.expense) ──
+        main_oa   = smtp_doc.get("mainLineOa") or {}
+        oa_token  = main_oa.get("token", "")
+        mc        = smtp_doc.get("moduleConnections") or {}
+        target_id = mc.get("expense", "")
+        if oa_token:
+            from .report_service import build_report_data as _brd
+            from .pdf_service import generate_expense_report_pdf as _genpdf
+            from .line_oa_service import push_line_report
+            from ..routers.reports import _pdf_store as _ps, _pdf_save as _psave, _pdf_path as _ppath
+            import uuid as _u2
+            try:
+                rd  = await _brd(cat_id, "daily", now)
+                pb  = _genpdf(rd)
+                rid = str(_u2.uuid4())
+                _psave(rid, pb)
+                _ps[rid] = _ppath(rid)
+                await push_line_report(oa_token, target_id, rd, f"/api/reports/download/{rid}")
+            except Exception as _e2:
+                print(f"[Approve] LINE push failed: {_e2}")
+    except Exception as _e3:
+        print(f"[Approve] Post-approval hook failed: {_e3}")
 
     return {"success": True, "message": "อนุมัติสำเร็จ", "expenseIds": expense_ids}
 

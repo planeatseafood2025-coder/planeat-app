@@ -60,6 +60,7 @@ class UserInDB(BaseModel):
     lastName: str = ""
     nickname: str = ""
     phone: str = ""
+    email: str = ""
     lineId: str = ""
     jobTitle: str = ""
     status: str = "active"   # active | pending | suspended
@@ -76,6 +77,7 @@ class UserOut(BaseModel):
     lastName: str = ""
     nickname: str = ""
     phone: str = ""
+    email: str = ""
     lineId: str = ""
     jobTitle: str = ""
     status: str = "active"
@@ -106,24 +108,30 @@ class RegisterRequest(BaseModel):
     lastName: str
     nickname: str = ""
     phone: str
+    email: str
     lineId: str = ""
     jobTitle: str = ""
     username: str
     password: str
     confirmPassword: str
+    otp: str
+
+class RequestRegisterOTPRequest(BaseModel):
+    email: str
+    firstName: str
 
 
 class ForgotPasswordRequest(BaseModel):
-    phone: str
+    username: str
 
 
 class VerifyOTPRequest(BaseModel):
-    phone: str
+    username: str
     otp: str
 
 
 class ResetPasswordRequest(BaseModel):
-    phone: str
+    username: str
     otp: str
     newPassword: str
 
@@ -137,5 +145,7 @@ class UpdateUserRequest(BaseModel):
     nickname: Optional[str] = None
     jobTitle: Optional[str] = None
     phone: Optional[str] = None
+    email: Optional[str] = None
     lineId: Optional[str] = None
+    password: Optional[str] = None
     permissions: Optional[Permissions] = None

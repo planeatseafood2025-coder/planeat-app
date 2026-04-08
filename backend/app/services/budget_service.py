@@ -82,6 +82,124 @@ async def get_budget_summary(month_year: Optional[str] = None) -> dict:
     }
 
 
+async def get_yearly_budget_vs_actual(year: int = None) -> dict:
+    """
+    Budget vs Actual รายเดือนตลอดปี สำหรับผู้บริหาร
+    คืน: { year, categories: [{id,name,color,icon,months:[{month,budget,spent,variance,pct}],
+           ytdBudget,ytdSpent,ytdVariance,ytdPct,status}], grandTotal }
+    """
+    from datetime import datetime
+    db = get_db()
+    now = datetime.now()
+    if not year:
+        year = now.year
+
+    # ─── 1. ดึงหมวดหมู่ทั้งหมด ─────────────────────────────────────────
+    cat_docs = await db.expense_categories.find({"isActive": True}).sort("order", 1).to_list(None)
+
+    # ─── 2. ยอดจริงต่อหมวด × เดือน ────────────────────────────────────
+    pipeline = [
+        {"$match": {"date_iso": {"$regex": f"^{year}-"}}},
+        {"$addFields": {"month_str": {"$substr": ["$date_iso", 5, 2]}}},
+        {"$group": {"_id": {"catKey": "$catKey", "month": "$month_str"}, "total": {"$sum": "$amount"}}},
+    ]
+    agg = await db.expenses.aggregate(pipeline).to_list(None)
+    # spent_map[catKey][month_int] = amount
+    spent_map: dict = {}
+    for r in agg:
+        ck = r["_id"]["catKey"]
+        mo = int(r["_id"]["month"])
+        spent_map.setdefault(ck, {})[mo] = r["total"]
+
+    # ─── 3. งบประมาณต่อหมวด × เดือน ────────────────────────────────────
+    budget_docs = await db.budgets.find(
+        {"monthYear": {"$regex": f"/{year}$"}}
+    ).to_list(None)
+    # budget_map[catKey][month_int] = monthly_budget
+    budget_map: dict = {}
+    for doc in budget_docs:
+        my = doc.get("monthYear", "")        # "MM/YYYY"
+        try:
+            mo = int(my.split("/")[0])
+        except Exception:
+            continue
+        for ck, bdata in doc.get("budgets", {}).items():
+            budget_map.setdefault(ck, {})[mo] = float(bdata.get("monthly", 0))
+
+    # ─── 4. สร้าง result ─────────────────────────────────────────────────
+    current_month = now.month if now.year == year else 12
+    categories = []
+    grand_ytd_budget = 0.0
+    grand_ytd_spent  = 0.0
+
+    for cat in cat_docs:
+        ck    = cat["_id"]
+        months = []
+        ytd_b = 0.0
+        ytd_s = 0.0
+
+        for mo in range(1, 13):
+            budget = budget_map.get(ck, {}).get(mo, 0.0)
+            spent  = spent_map.get(ck, {}).get(mo, 0.0)
+            future = (year == now.year and mo > current_month) or year > now.year
+            variance = budget - spent
+            pct = round(spent / budget * 100, 1) if budget > 0 else (None if spent == 0 else 999)
+            months.append({
+                "month":    mo,
+                "budget":   budget,
+                "spent":    spent,
+                "variance": variance,
+                "pct":      pct,
+                "future":   future,
+            })
+            if not future:
+                ytd_b += budget
+                ytd_s += spent
+
+        ytd_var = ytd_b - ytd_s
+        ytd_pct = round(ytd_s / ytd_b * 100, 1) if ytd_b > 0 else (None if ytd_s == 0 else 999)
+        if ytd_pct is None:
+            status = "nodata"
+        elif ytd_pct > 100:
+            status = "over"
+        elif ytd_pct > 80:
+            status = "warning"
+        else:
+            status = "good"
+
+        grand_ytd_budget += ytd_b
+        grand_ytd_spent  += ytd_s
+
+        categories.append({
+            "id":         ck,
+            "name":       cat.get("name", ck),
+            "color":      cat.get("color", "#64748b"),
+            "icon":       cat.get("icon", "receipt_long"),
+            "months":     months,
+            "ytdBudget":  ytd_b,
+            "ytdSpent":   ytd_s,
+            "ytdVariance":ytd_var,
+            "ytdPct":     ytd_pct,
+            "status":     status,
+        })
+
+    grand_var = grand_ytd_budget - grand_ytd_spent
+    grand_pct = round(grand_ytd_spent / grand_ytd_budget * 100, 1) if grand_ytd_budget > 0 else 0.0
+
+    return {
+        "success":    True,
+        "year":       year,
+        "categories": categories,
+        "grandTotal": {
+            "ytdBudget":   grand_ytd_budget,
+            "ytdSpent":    grand_ytd_spent,
+            "ytdVariance": grand_var,
+            "ytdPct":      grand_pct,
+            "status":      "over" if grand_pct > 100 else ("warning" if grand_pct > 80 else "good"),
+        },
+    }
+
+
 async def set_budget(payload: dict) -> dict:
     """
     Save/update budget for a given monthYear.

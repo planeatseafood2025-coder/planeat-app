@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth'
 import type { ChatContact, ChatMessage, Notification } from '@/types'
 import { ROLE_LABELS } from '@/types'
 
+// SSE replaces polling — ค่านี้ยังเก็บไว้เป็น fallback timeout
 const POLL_MS = 3000
 
 function Avatar({ contact, size = 36 }: { contact: ChatContact; size?: number }) {
@@ -40,7 +41,8 @@ export default function ChatPage() {
   const [unreadFrom, setUnreadFrom] = useState<Set<string>>(new Set())
   const bottomRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const notifPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const chatSseRef = useRef<EventSource | null>(null)
+  const notifSseRef = useRef<EventSource | null>(null)
 
   // Load contacts once
   useEffect(() => {
@@ -51,19 +53,19 @@ export default function ChatPage() {
     }).catch(() => setLoadingContacts(false))
   }, [])
 
-  // Poll notifications to detect new chat messages
+  // SSE notifications — ตรวจหาข้อความใหม่จาก unread chat notifications
   useEffect(() => {
-    async function checkNotifs() {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''
+    const es = new EventSource(`/api/sse/notifications?token=${encodeURIComponent(token)}`)
+    es.addEventListener('notification', (e: MessageEvent) => {
       try {
-        const res = await notificationApi.getAll() as { notifications?: Notification[] }
-        const chatNotifs = (res.notifications || []).filter(n => !n.read && n.type === 'general')
-        const senders = new Set(chatNotifs.map(n => n.senderUsername))
-        setUnreadFrom(senders)
+        const data = JSON.parse(e.data)
+        const chatNotifs = (data.notifications || []).filter((n: { read: boolean; type: string }) => !n.read && n.type === 'general')
+        setUnreadFrom(new Set(chatNotifs.map((n: { senderUsername: string }) => n.senderUsername)))
       } catch {}
-    }
-    checkNotifs()
-    notifPollRef.current = setInterval(checkNotifs, 10000)
-    return () => { if (notifPollRef.current) clearInterval(notifPollRef.current) }
+    })
+    notifSseRef.current = es
+    return () => { es.close(); notifSseRef.current = null }
   }, [])
 
   const loadMessages = useCallback(async (otherUsername: string) => {
@@ -73,17 +75,32 @@ export default function ChatPage() {
     } catch {}
   }, [])
 
-  // When contact changes, load messages and start polling
+  // When contact changes, load messages and open SSE stream
   useEffect(() => {
     if (!selected) return
     setLoadingMsgs(true)
-    // Mark as read when opening
     setUnreadFrom(prev => { const s = new Set(prev); s.delete(selected.username); return s })
     loadMessages(selected.username).finally(() => setLoadingMsgs(false))
 
-    if (pollRef.current) clearInterval(pollRef.current)
-    pollRef.current = setInterval(() => loadMessages(selected.username), POLL_MS)
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+    // ปิด stream เก่า
+    chatSseRef.current?.close()
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''
+    const es = new EventSource(`/api/sse/chat/${encodeURIComponent(selected.username)}?token=${encodeURIComponent(token)}`)
+    es.addEventListener('message', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        setMessages(data.messages || [])
+      } catch {}
+    })
+    es.onerror = () => {
+      // SSE error → fallback polling
+      es.close()
+      pollRef.current = setInterval(() => loadMessages(selected.username), POLL_MS)
+    }
+    chatSseRef.current = es
+    return () => { es.close(); chatSseRef.current = null }
   }, [selected, loadMessages])
 
   // Scroll to bottom when messages change

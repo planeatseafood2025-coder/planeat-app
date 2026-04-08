@@ -6,6 +6,7 @@ from jose import JWTError, jwt
 import bcrypt
 from ..config import settings
 from ..database import get_db
+from .email_service import send_otp_email
 
 # ─── Password helpers ─────────────────────────────────────────────────────────
 
@@ -59,12 +60,44 @@ async def authenticate_user(username: str, password: str):
 async def register_user(data: dict) -> dict:
     db = get_db()
 
-    if data["password"] != data["confirmPassword"]:
+    if data.get("password") != data.get("confirmPassword"):
         return {"success": False, "message": "รหัสผ่านไม่ตรงกัน"}
-    if len(data["password"]) < 6:
+    if len(data.get("password", "")) < 6:
         return {"success": False, "message": "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"}
-    if not data["phone"].strip():
+    if not data.get("phone", "").strip():
         return {"success": False, "message": "กรุณากรอกเบอร์โทรศัพท์"}
+    if not data.get("email", "").strip():
+        return {"success": False, "message": "กรุณากรอกอีเมล"}
+
+    email = data["email"].strip()
+    line_uid = ""
+
+    # ─── LINE OTP session verification ────────────────────────────────────────
+    session_id = data.get("sessionId", "").strip()
+    if session_id:
+        session = await db.registration_sessions.find_one({"_id": session_id})
+        if not session:
+            return {"success": False, "message": "ไม่พบ session กรุณาขอรหัสใหม่"}
+        if session.get("status") != "verified":
+            return {"success": False, "message": "ยังไม่ได้ยืนยัน OTP ผ่าน LINE"}
+        expires = datetime.fromisoformat(session["expiresAt"])
+        if datetime.now(timezone.utc) > expires:
+            return {"success": False, "message": "Session หมดอายุแล้ว กรุณาขอรหัสใหม่"}
+        if session.get("email") != email:
+            return {"success": False, "message": "อีเมลไม่ตรงกับ session"}
+        line_uid = session.get("lineUid", "")
+
+    # ─── Email OTP verification (fallback) ────────────────────────────────────
+    else:
+        otp = data.get("otp", "").strip()
+        if not otp:
+            return {"success": False, "message": "กรุณากรอก OTP"}
+        record = await db.otp_tokens.find_one({"email": email, "otp": otp})
+        if not record:
+            return {"success": False, "message": "OTP ไม่ถูกต้อง"}
+        expires = datetime.fromisoformat(record["expiresAt"])
+        if datetime.now(timezone.utc) > expires:
+            return {"success": False, "message": "OTP หมดอายุแล้ว กรุณาขอใหม่"}
 
     existing = await db.users.find_one({"username": data["username"]})
     if existing:
@@ -73,6 +106,10 @@ async def register_user(data: dict) -> dict:
     phone_existing = await db.users.find_one({"phone": data["phone"].strip()})
     if phone_existing:
         return {"success": False, "message": "เบอร์โทรนี้ถูกใช้ลงทะเบียนแล้ว"}
+
+    email_existing = await db.users.find_one({"email": email})
+    if email_existing:
+        return {"success": False, "message": "อีเมลนี้ถูกใช้ลงทะเบียนแล้ว"}
 
     name = f"{data['firstName'].strip()} {data['lastName'].strip()}".strip()
     doc = {
@@ -83,7 +120,9 @@ async def register_user(data: dict) -> dict:
         "lastName":     data["lastName"].strip(),
         "nickname":     data.get("nickname", "").strip(),
         "phone":        data["phone"].strip(),
+        "email":        email,
         "lineId":       data.get("lineId", "").strip(),
+        "lineUid":      line_uid,
         "jobTitle":     data.get("jobTitle", "").strip(),
         "role":         "general_user",
         "status":       "pending",
@@ -91,6 +130,13 @@ async def register_user(data: dict) -> dict:
         "createdAt":    datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(doc)
+
+    # Cleanup
+    if session_id:
+        await db.registration_sessions.delete_many({"_id": session_id})
+    else:
+        await db.otp_tokens.delete_many({"email": email})
+
     return {"success": True, "message": "สมัครสมาชิกสำเร็จ รอการอนุมัติจากผู้ดูแลระบบ"}
 
 
@@ -100,32 +146,106 @@ def _gen_otp() -> str:
     return ''.join(random.choices(string.digits, k=6))
 
 
-async def send_otp(phone: str) -> dict:
+async def request_register_otp(email: str, first_name: str) -> dict:
     db = get_db()
-    user = await db.users.find_one({"phone": phone.strip()})
-    if not user:
-        return {"success": False, "message": "ไม่พบบัญชีที่ใช้เบอร์นี้"}
+    existing = await db.users.find_one({"email": email.strip()})
+    if existing:
+        return {"success": False, "message": "อีเมลนี้ถูกใช้ลงทะเบียนแล้ว"}
 
     otp = _gen_otp()
     expires = datetime.now(timezone.utc) + timedelta(minutes=5)
 
-    await db.otp_tokens.delete_many({"phone": phone.strip()})
+    await db.otp_tokens.delete_many({"email": email.strip()})
     await db.otp_tokens.insert_one({
-        "phone":     phone.strip(),
+        "email":     email.strip(),
         "otp":       otp,
         "expiresAt": expires.isoformat(),
         "createdAt": datetime.now(timezone.utc).isoformat(),
     })
 
-    # DEV: log OTP to console (replace with SMS provider in production)
-    print(f"[OTP] Phone: {phone}  OTP: {otp}  (expires 5 min)")
+    # Send HTML OTP email
+    await send_otp_email(to_email=email.strip(), otp=otp, name=first_name.strip(), is_register=True)
+    return {"success": True, "message": f"ส่ง OTP ไปยังอีเมลของคุณแล้ว"}
 
-    return {"success": True, "message": "ส่ง OTP แล้ว (ดู console สำหรับ DEV)", "dev_otp": otp}
 
-
-async def verify_otp(phone: str, otp: str) -> dict:
+async def request_line_otp(email: str, first_name: str) -> dict:
+    """
+    สร้าง OTP session สำหรับยืนยันตัวตนผ่าน LINE OA
+    คืน sessionId และ OTP code ให้ frontend แสดงต่อ user
+    """
+    import uuid
     db = get_db()
-    record = await db.otp_tokens.find_one({"phone": phone.strip(), "otp": otp.strip()})
+    existing = await db.users.find_one({"email": email.strip()})
+    if existing:
+        return {"success": False, "message": "อีเมลนี้ถูกใช้ลงทะเบียนแล้ว"}
+
+    otp = _gen_otp()
+    session_id = str(uuid.uuid4())
+    expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    # ลบ session เก่าของ email นี้
+    await db.registration_sessions.delete_many({"email": email.strip()})
+    await db.registration_sessions.insert_one({
+        "_id":       session_id,
+        "email":     email.strip(),
+        "firstName": first_name.strip(),
+        "otp":       otp,
+        "status":    "pending",   # pending | verified
+        "lineUid":   "",
+        "expiresAt": expires.isoformat(),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return {
+        "success":   True,
+        "sessionId": session_id,
+        "otp":       otp,
+        "message":   "สร้าง OTP สำเร็จ กรุณาส่งรหัสไปที่ LINE OA",
+    }
+
+
+async def send_otp(username: str) -> dict:
+    db = get_db()
+    # Find user by username
+    user = await db.users.find_one({"username": username.strip()})
+    if not user:
+        # allow finding by firstName if username didn't match
+        user = await db.users.find_one({"firstName": username.strip()})
+        if not user:
+            return {"success": False, "message": "ไม่พบบัญชีผู้ใช้งานนี้"}
+
+    user_email = user.get("email")
+    if not user_email:
+        return {"success": False, "message": "บัญชีนี้ไม่ได้ผูกอีเมลไว้ ไม่สามารถส่งคำขอเปลี่ยนรหัสผ่านได้"}
+
+    otp = _gen_otp()
+    expires = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    await db.otp_tokens.delete_many({"username": user["username"]})
+    await db.otp_tokens.insert_one({
+        "username":  user["username"],
+        "otp":       otp,
+        "expiresAt": expires.isoformat(),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Send HTML OTP email
+    await send_otp_email(to_email=user_email, otp=otp, name=user.get("firstName", ""), is_register=False)
+
+    return {"success": True, "message": "ส่ง OTP ไปที่อีเมลของคุณแล้ว"}
+
+
+async def verify_otp(username: str, otp: str) -> dict:
+    db = get_db()
+    user = await db.users.find_one({"username": username.strip()})
+    if not user:
+        user = await db.users.find_one({"firstName": username.strip()})
+    if not user:
+        return {"success": False, "message": "ไม่พบบัญชีผู้ใช้งานนี้"}
+
+    actual_username = user["username"]
+
+    record = await db.otp_tokens.find_one({"username": actual_username, "otp": otp.strip()})
     if not record:
         return {"success": False, "message": "OTP ไม่ถูกต้อง"}
 
@@ -136,8 +256,8 @@ async def verify_otp(phone: str, otp: str) -> dict:
     return {"success": True, "message": "OTP ถูกต้อง"}
 
 
-async def reset_password(phone: str, otp: str, new_password: str) -> dict:
-    verify = await verify_otp(phone, otp)
+async def reset_password(username: str, otp: str, new_password: str) -> dict:
+    verify = await verify_otp(username, otp)
     if not verify["success"]:
         return verify
 
@@ -145,14 +265,19 @@ async def reset_password(phone: str, otp: str, new_password: str) -> dict:
         return {"success": False, "message": "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"}
 
     db = get_db()
+    user = await db.users.find_one({"username": username.strip()})
+    if not user:
+        user = await db.users.find_one({"firstName": username.strip()})
+    actual_username = user["username"]
+
     result = await db.users.update_one(
-        {"phone": phone.strip()},
+        {"username": actual_username},
         {"$set": {"password_hash": hash_password(new_password)}}
     )
     if result.modified_count == 0:
-        return {"success": False, "message": "ไม่พบบัญชีที่ใช้เบอร์นี้"}
+        return {"success": False, "message": "ระบบไม่สามารถเปลี่ยนรหัสผ่านได้"}
 
-    await db.otp_tokens.delete_many({"phone": phone.strip()})
+    await db.otp_tokens.delete_many({"username": actual_username})
     return {"success": True, "message": "เปลี่ยนรหัสผ่านสำเร็จ"}
 
 
@@ -168,6 +293,7 @@ async def get_all_users(search: str = "", page: int = 1, per_page: int = 20) -> 
             {"firstName": {"$regex": search, "$options": "i"}},
             {"lastName":  {"$regex": search, "$options": "i"}},
             {"phone":     {"$regex": search, "$options": "i"}},
+            {"email":     {"$regex": search, "$options": "i"}},
             {"jobTitle":  {"$regex": search, "$options": "i"}},
         ]}
 
@@ -185,11 +311,13 @@ async def update_user(username: str, data: dict) -> dict:
         return {"success": False, "message": "ไม่พบผู้ใช้"}
 
     fields: dict = {}
-    for key in ["role", "status", "name", "firstName", "lastName", "nickname", "jobTitle", "phone", "lineId"]:
+    for key in ["role", "status", "name", "firstName", "lastName", "nickname", "jobTitle", "phone", "email", "lineId"]:
         if key in data and data[key] is not None:
             fields[key] = data[key]
     if "permissions" in data and data["permissions"] is not None:
         fields["permissions"] = data["permissions"] if isinstance(data["permissions"], dict) else data["permissions"].dict()
+    if "password" in data and data["password"]:
+        fields["password_hash"] = hash_password(data["password"])
 
     if not fields:
         return {"success": False, "message": "ไม่มีข้อมูลที่ต้องอัปเดต"}

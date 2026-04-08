@@ -200,11 +200,11 @@ body {
 /* ─── Login/Landing screens ─── */
 #login-screen, .login-screen {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0ea5e9 100%);
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%);
 }
 #landing-page, .landing-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0ea5e9 100%);
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -227,8 +227,7 @@ body {
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.3s;
-  box-shadow: 0 4px 20px rgba(37,99,235,0.4);
-  animation: pulseGlow 2.5s ease-in-out infinite;
+  box-shadow: 0 4px 20px rgba(37,99,235,0.3);
 }
 .landing-btn-main:hover {
   transform: translateY(-3px) scale(1.02);
@@ -265,7 +264,7 @@ body {
 /* ─── Standalone page ─── */
 .category-select-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0ea5e9 100%);
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%);
 }
 
 /* ─── Budget info ─── */

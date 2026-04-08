@@ -97,25 +97,43 @@ async def ensure_default_categories():
 
 
 async def get_all_categories(active_only: bool = True) -> list:
+    from .cache_service import cache_get, cache_set
+    cache_key = f"categories:{'active' if active_only else 'all'}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     db = get_db()
     query = {"isActive": True} if active_only else {}
     cursor = db.expense_categories.find(query).sort("order", 1)
     result = []
     async for doc in cursor:
         result.append(_serialize(doc))
+    await cache_set(cache_key, result, ttl=300)   # 5 นาที
     return result
 
 
 async def get_categories_for_user(username: str, role: str) -> list:
-    """ดึง categories ที่ user มีสิทธิ์กรอกข้อมูล"""
+    """
+    ดึง categories ที่ user มีสิทธิ์กรอกข้อมูล
+
+    กฎสิทธิ์:
+    - Manager roles → เข้าถึงได้ทุกหมวดเสมอ
+    - allowedRoles/allowedUsers ว่างทั้งคู่ → ไม่มีใครเข้าได้ (นอกจาก manager)
+    - ระบุ allowedRoles/allowedUsers → เฉพาะคนที่ได้รับสิทธิ์เท่านั้น
+    """
     all_cats = await get_all_categories()
     accessible = []
     for cat in all_cats:
         allowed_roles = cat.get("allowedRoles", [])
         allowed_users = cat.get("allowedUsers", [])
-        # ถ้า allowedRoles ว่าง = ทุกคนเข้าได้
-        if not allowed_roles and not allowed_users:
+        # Manager เข้าได้เสมอ
+        if role in MANAGER_ROLES:
             accessible.append(cat)
+        # ถ้าไม่ได้ระบุใคร → ไม่มีสิทธิ์ (ต้องให้ manager เปิดก่อน)
+        elif not allowed_roles and not allowed_users:
+            pass
+        # ตรงตาม role หรือ username ที่ระบุไว้
         elif role in allowed_roles or username in allowed_users:
             accessible.append(cat)
     return accessible
@@ -125,6 +143,11 @@ async def get_category_by_id(cat_id: str) -> Optional[dict]:
     db = get_db()
     doc = await db.expense_categories.find_one({"_id": cat_id})
     return _serialize(doc) if doc else None
+
+
+async def _invalidate_categories_cache():
+    from .cache_service import cache_delete_pattern
+    await cache_delete_pattern("categories:*")
 
 
 async def create_category(payload: dict, creator_username: str) -> dict:
@@ -145,6 +168,7 @@ async def create_category(payload: dict, creator_username: str) -> dict:
         "createdBy":    creator_username,
     }
     await db.expense_categories.insert_one(doc)
+    await _invalidate_categories_cache()
     return {"success": True, "category": _serialize(doc)}
 
 
@@ -155,6 +179,7 @@ async def update_category(cat_id: str, payload: dict) -> dict:
         return {"success": False, "message": "ไม่มีข้อมูลที่จะอัปเดต"}
     updates["updatedAt"] = datetime.utcnow().isoformat()
     await db.expense_categories.update_one({"_id": cat_id}, {"$set": updates})
+    await _invalidate_categories_cache()
     doc = await db.expense_categories.find_one({"_id": cat_id})
     return {"success": True, "category": _serialize(doc) if doc else None}
 
@@ -184,6 +209,7 @@ async def delete_category(cat_id: str) -> dict:
     r  = await db.expenses.delete_many({"catKey": cat_id})
     b  = await db.budgets.delete_many({"catKey": cat_id})
     await db.expense_categories.delete_one({"_id": cat_id})
+    await _invalidate_categories_cache()
 
     return {
         "success":        True,
