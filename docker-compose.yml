@@ -59,6 +59,7 @@ services:
       PDF_STORAGE_PATH: /app/pdf_storage
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
     volumes:
       - pdf_data:/app/pdf_storage
     depends_on:
