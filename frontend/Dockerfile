@@ -18,6 +18,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN mkdir -p public
 RUN npm run build
 # สร้าง font-manifest.json ถ้าไม่มี (เกิดจาก optimizeFonts: false)
