@@ -8,6 +8,7 @@ from .database import connect_db, close_db, get_db
 from .routers import auth, expenses, budget, users, inventory, chat, profile, notifications, categories, settings, reports, line_webhook, sse, customers, crm_workspaces, segments, google_sheets, deals, activities
 from .services.inventory_service import init_warehouses
 from .services.category_service import ensure_default_categories
+from .services.auth_service import ensure_default_admin
 
 logger = logging.getLogger("planeat.api")
 
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     await connect_db()
     await init_warehouses()
     await ensure_default_categories()
+    await ensure_default_admin()
     db = get_db()
     await db.otp_tokens.create_index("username")
     await db.otp_tokens.create_index("expiresAt", expireAfterSeconds=0)

@@ -335,3 +335,28 @@ async def delete_user(username: str) -> dict:
         return {"success": False, "message": "ไม่สามารถลบบัญชีนี้ได้"}
     await db.users.delete_one({"username": username})
     return {"success": True, "message": "ลบผู้ใช้สำเร็จ"}
+
+
+async def ensure_default_admin() -> None:
+    db = get_db()
+    existing = await db.users.find_one({"username": "admin"})
+    if existing:
+        return
+    doc = {
+        "username":      "admin",
+        "password_hash": hash_password("admin1234"),
+        "name":          "Administrator",
+        "firstName":     "Administrator",
+        "lastName":      "",
+        "phone":         "0000000000",
+        "email":         "",
+        "lineUid":       "",
+        "jobTitle":      "System Admin",
+        "role":          "admin",
+        "status":        "approved",
+        "permissions":   {"labor": True, "raw": True, "chem": True, "repair": True},
+        "createdAt":     datetime.now(timezone.utc),
+    }
+    await db.users.insert_one(doc)
+    import logging
+    logging.getLogger("planeat.api").info("✅ Default admin user created (username: admin)")
