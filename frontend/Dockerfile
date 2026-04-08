@@ -18,6 +18,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
+RUN mkdir -p public
 RUN npm run build
 # สร้าง font-manifest.json ถ้าไม่มี (เกิดจาก optimizeFonts: false)
 RUN mkdir -p .next/server && test -f .next/server/font-manifest.json || echo '{}' > .next/server/font-manifest.json
@@ -33,7 +34,6 @@ RUN apk add --no-cache curl && \
     addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 --ingroup nodejs nextjs
 
-RUN mkdir -p ./public
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
