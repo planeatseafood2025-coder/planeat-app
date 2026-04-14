@@ -10,10 +10,12 @@ class Settings(BaseSettings):
 
     # MongoDB Settings
     mongo_password: str = "planeat123"
-    
+    mongo_url: str = ""
+
     @property
-    def mongo_url(self) -> str:
-        # สร้าง URL อัตโนมัติจากรหัสผ่าน (ใช้ภายใน Docker Network)
+    def effective_mongo_url(self) -> str:
+        if self.mongo_url:
+            return self.mongo_url
         return f"mongodb://planeat:{self.mongo_password}@mongodb:27017/{self.db_name}?authSource=admin"
 
     # PDF Storage
@@ -24,6 +26,9 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # Public URL
+    public_url: str = ""
 
     # SMTP Settings
     smtp_server: str = "smtp.gmail.com"

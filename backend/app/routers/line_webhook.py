@@ -96,38 +96,278 @@ async def _get_or_create_default_workspace(config_id: str, config_name: str) -> 
     return result["workspace"]["id"]
 
 
-async def _handle_otp_message(text: str, user_id: str, reply_token: str, access_token: str) -> None:
-    """ตรวจสอบว่าข้อความที่ส่งมาเป็น OTP สมัครสมาชิกหรือไม่"""
-    import re
-    if not re.fullmatch(r"\d{6}", text):
-        return  # ไม่ใช่ OTP 6 หลัก
+async def _handle_user_approval_reply(text: str, user_id: str, reply_token: str, access_token: str) -> bool:
+    """
+    IT/Admin ตอบ Y/N เพื่ออนุมัติ/ปฏิเสธสมาชิกใหม่
+    คืน True ถ้าจัดการแล้ว
+    """
+    normalized = text.strip().upper()
+    if normalized not in ("Y", "YES", "N", "NO", "ใช่", "ไม่"):
+        return False
 
     db = get_db()
-    session = await db.registration_sessions.find_one({"otp": text, "status": "pending"})
-    if not session:
-        return  # OTP ไม่ตรงหรือหมดอายุ
-
-    # ตรวจอายุ
-    expires = datetime.fromisoformat(session["expiresAt"])
-    if datetime.now().replace(tzinfo=expires.tzinfo) > expires:
-        if reply_token and access_token:
-            await _send_reply(reply_token, "❌ รหัส OTP หมดอายุแล้ว กรุณาขอรหัสใหม่จากเว็บไซต์", access_token)
-        return
-
-    # Mark verified
-    await db.registration_sessions.update_one(
-        {"_id": session["_id"]},
-        {"$set": {"status": "verified", "lineUid": user_id, "verifiedAt": datetime.now().isoformat()}},
+    pending = await db.line_user_approval_pending.find_one(
+        {"adminLineUid": user_id},
+        sort=[("createdAt", -1)]
     )
-    logger.info("LINE OTP verified: session=%s lineUid=%s", session["_id"], user_id)
+    if not pending:
+        return False
 
-    if reply_token and access_token:
-        name = session.get("firstName", "คุณ")
+    target_username = pending["targetUsername"]
+    target_line_uid = pending.get("targetLineUid", "")
+    admin_username  = pending.get("adminUsername", "")
+
+    # ตรวจว่า user ถูกดำเนินการไปแล้วหรือยัง (admin คนอื่นอาจกดไปก่อนแล้ว)
+    user = await db.users.find_one({"username": target_username})
+    if not user:
+        await db.line_user_approval_pending.delete_one({"_id": pending["_id"]})
+        await _send_reply(reply_token, "❌ ไม่พบผู้ใช้รายนี้ในระบบ", access_token)
+        return True
+
+    if user.get("status") != "pending":
+        # มีคนดำเนินการไปแล้ว
+        await db.line_user_approval_pending.delete_one({"_id": pending["_id"]})
+        action_by = user.get("approvedBy") or user.get("rejectedBy") or "admin อื่น"
+        status_th = "อนุมัติ" if user.get("status") == "active" else "ปฏิเสธ"
         await _send_reply(
             reply_token,
-            f"✅ ยืนยันตัวตนสำเร็จแล้ว คุณ{name}!\nกรุณากลับไปที่หน้าเว็บเพื่อดำเนินการสมัครสมาชิกต่อ",
-            access_token,
+            f"ℹ️ รายการนี้ถูก{status_th}ไปแล้ว\nดำเนินการโดย: {action_by}",
+            access_token
         )
+        return True
+
+    name  = user.get("name", target_username)
+    phone = user.get("phone", "")
+
+    from datetime import datetime as _dt
+    now_str = _dt.now().isoformat()
+
+    # ลบ pending ของ admin นี้ก่อน
+    await db.line_user_approval_pending.delete_one({"_id": pending["_id"]})
+
+    if normalized in ("Y", "YES", "ใช่"):
+        await db.users.update_one(
+            {"username": target_username},
+            {"$set": {"status": "active", "approvedBy": admin_username, "approvedAt": now_str}}
+        )
+        # แจ้งผู้สมัครทาง LINE
+        if target_line_uid:
+            from ..services.line_notify_service import _push_to_uid
+            await _push_to_uid(target_line_uid, [{"type": "text", "text": (
+                f"🎉 บัญชีของคุณได้รับการอนุมัติแล้ว!\n"
+                f"Username: {target_username}\n\n"
+                f"กรุณาเข้าสู่ระบบได้เลยครับ/ค่ะ"
+            )}])
+        await _send_reply(
+            reply_token,
+            f"✅ อนุมัติสมาชิกแล้ว\nชื่อ: {name}\nUsername: {target_username}\nเบอร์: {phone}",
+            access_token
+        )
+        # แจ้ง admin คนอื่นที่ยังรืออยู่
+        await _notify_other_admins_member_handled(
+            target_username, name, admin_username, "อนุมัติ"
+        )
+    else:
+        await db.users.update_one(
+            {"username": target_username},
+            {"$set": {"status": "rejected", "rejectedBy": admin_username, "rejectedAt": now_str}}
+        )
+        if target_line_uid:
+            from ..services.line_notify_service import _push_to_uid
+            await _push_to_uid(target_line_uid, [{"type": "text", "text": (
+                f"❌ บัญชีของคุณไม่ผ่านการอนุมัติ\n"
+                f"Username: {target_username}\n\n"
+                f"กรุณาติดต่อทีม IT เพื่อสอบถามข้อมูลเพิ่มเติม"
+            )}])
+        await _send_reply(
+            reply_token,
+            f"❌ ปฏิเสธสมาชิกแล้ว\nชื่อ: {name}\nUsername: {target_username}",
+            access_token
+        )
+        # แจ้ง admin คนอื่นที่ยังรออยู่
+        await _notify_other_admins_member_handled(
+            target_username, name, admin_username, "ปฏิเสธ"
+        )
+
+    return True
+
+
+async def _notify_other_admins_member_handled(
+    target_username: str, name: str, handled_by: str, action: str
+) -> None:
+    """แจ้ง admin คนอื่นที่ยังมี pending record อยู่ว่ามีคนดำเนินการไปแล้ว"""
+    db = get_db()
+    remaining = await db.line_user_approval_pending.find(
+        {"targetUsername": target_username}
+    ).to_list(20)
+
+    if not remaining:
+        return
+
+    from ..services.line_notify_service import _push_to_uid
+    icon = "✅" if action == "อนุมัติ" else "❌"
+    msg = (
+        f"{icon} {action}สมาชิกแล้ว\n"
+        f"ชื่อ: {name}\n"
+        f"Username: {target_username}\n"
+        f"ดำเนินการโดย: {handled_by}"
+    )
+    for rec in remaining:
+        uid = rec.get("adminLineUid", "")
+        if uid:
+            await _push_to_uid(uid, [{"type": "text", "text": msg}])
+
+    # ลบ pending ทั้งหมดของ user นี้
+    await db.line_user_approval_pending.delete_many({"targetUsername": target_username})
+
+
+async def _handle_approval_reply(text: str, user_id: str, reply_token: str, access_token: str) -> bool:
+    """
+    ตรวจสอบว่า manager ตอบ Y/Yes/N/No เพื่ออนุมัติ/ปฏิเสธรายการค่าใช้จ่าย
+    คืน True ถ้าจัดการแล้ว, False ถ้าไม่ใช่คำตอบ approval
+    """
+    normalized = text.strip().upper()
+    if normalized not in ("Y", "YES", "N", "NO", "ใช่", "ไม่"):
+        return False
+
+    db = get_db()
+    # หา pending approval ของ manager คนนี้ (เรียงตามใหม่สุด)
+    pending = await db.line_approval_pending.find_one(
+        {"managerLineUid": user_id},
+        sort=[("createdAt", -1)]
+    )
+    if not pending:
+        return False
+
+    draft_id = pending["draftId"]
+    manager_username = pending.get("managerUsername", "")
+
+    # ลบ pending state ออกก่อน (ป้องกัน double-process)
+    await db.line_approval_pending.delete_one({"_id": pending["_id"]})
+
+    # ดึง draft
+    draft = await db.expense_drafts.find_one({"_id": draft_id})
+    if not draft or draft.get("status") != "pending":
+        await _send_reply(reply_token, "❌ ไม่พบรายการ หรือรายการนี้ดำเนินการไปแล้ว", access_token)
+        return True
+
+    import uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+
+    now = _dt.now(_tz.utc)
+    recorder_name = draft.get("recorderName", draft.get("recorder", ""))
+    category = draft.get("category", "")
+    date_str = draft.get("date", "")
+    total = float(draft.get("total", 0))
+
+    if normalized in ("Y", "YES", "ใช่"):
+        # ── อนุมัติ ──────────────────────────────────────────────────────────
+        from ..services.expense_service import calc_expense_total
+        expense_ids = []
+        for row in draft.get("rows", []):
+            row_total, detail, note = calc_expense_total(category, row)
+            if row_total <= 0 and not detail:
+                continue
+            doc = {
+                "_id": str(_uuid.uuid4()),
+                "date": draft["date"],
+                "date_iso": draft.get("date_iso", ""),
+                "category": category,
+                "catKey": draft.get("catKey", ""),
+                "amount": row_total,
+                "recorder": draft["recorder"],
+                "recorderName": recorder_name,
+                "recorderLineId": draft.get("recorderLineId", ""),
+                "detail": detail,
+                "note": note,
+                "rows": [row],
+                "approvedBy": manager_username,
+                "approverName": manager_username,
+                "approvedAt": now.isoformat(),
+                "draftId": draft_id,
+                "createdAt": now.isoformat(),
+            }
+            await db.expenses.insert_one(doc)
+            expense_ids.append(doc["_id"])
+
+        await db.expense_drafts.update_one(
+            {"_id": draft_id},
+            {"$set": {"status": "approved", "reviewedBy": manager_username,
+                      "reviewedAt": now.isoformat(), "approvedExpenseIds": expense_ids}}
+        )
+
+        # แจ้ง recorder ใน app
+        await db.notifications.insert_one({
+            "id": str(_uuid.uuid4()),
+            "recipientUsername": draft["recorder"],
+            "senderUsername": manager_username,
+            "type": "expense_approved",
+            "title": "✅ รายการได้รับการอนุมัติ",
+            "body": f"อนุมัติรายการ{category} วันที่ {date_str} ยอด ฿{total:,.0f} แล้ว",
+            "read": False,
+            "createdAt": now,
+            "data": {"draftId": draft_id},
+        })
+
+        # แจ้ง recorder ผ่าน LINE OA
+        recorder_user = await db.users.find_one(
+            {"username": draft["recorder"]}, {"lineUid": 1, "lineNotifyToken": 1, "_id": 0}
+        )
+        if recorder_user:
+            msg = f"✅ รายการของคุณได้รับการอนุมัติแล้ว\nหมวด: {category}\nวันที่: {date_str}\nยอด: ฿{total:,.0f}"
+            if recorder_user.get("lineUid"):
+                from ..services.line_notify_service import _push_to_uid
+                await _push_to_uid(recorder_user["lineUid"], [{"type": "text", "text": msg}])
+            elif recorder_user.get("lineNotifyToken"):
+                from ..services.line_notify_service import _notify_personal
+                await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg}")
+
+        await _send_reply(
+            reply_token,
+            f"✅ อนุมัติแล้ว\nผู้กรอก: {recorder_name}\nหมวด: {category}\nวันที่: {date_str}\nยอด: ฿{total:,.0f}",
+            access_token
+        )
+
+    else:
+        # ── ปฏิเสธ ───────────────────────────────────────────────────────────
+        await db.expense_drafts.update_one(
+            {"_id": draft_id},
+            {"$set": {"status": "rejected", "reviewedBy": manager_username,
+                      "reviewedAt": now.isoformat(), "rejectReason": "ปฏิเสธผ่าน LINE"}}
+        )
+
+        await db.notifications.insert_one({
+            "id": str(_uuid.uuid4()),
+            "recipientUsername": draft["recorder"],
+            "senderUsername": manager_username,
+            "type": "expense_rejected",
+            "title": "❌ รายการไม่ผ่านการอนุมัติ",
+            "body": f"ไม่อนุมัติรายการ{category} วันที่ {date_str} ยอด ฿{total:,.0f}",
+            "read": False,
+            "createdAt": now,
+            "data": {"draftId": draft_id},
+        })
+
+        recorder_user = await db.users.find_one(
+            {"username": draft["recorder"]}, {"lineUid": 1, "lineNotifyToken": 1, "_id": 0}
+        )
+        if recorder_user:
+            msg = f"❌ รายการของคุณไม่ผ่านการอนุมัติ\nหมวด: {category}\nวันที่: {date_str}\nยอด: ฿{total:,.0f}"
+            if recorder_user.get("lineUid"):
+                from ..services.line_notify_service import _push_to_uid
+                await _push_to_uid(recorder_user["lineUid"], [{"type": "text", "text": msg}])
+            elif recorder_user.get("lineNotifyToken"):
+                from ..services.line_notify_service import _notify_personal
+                await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg}")
+
+        await _send_reply(
+            reply_token,
+            f"❌ ปฏิเสธแล้ว\nผู้กรอก: {recorder_name}\nหมวด: {category}\nวันที่: {date_str}\nยอด: ฿{total:,.0f}",
+            access_token
+        )
+
+    return True
+
 
 
 async def _handle_follow(event: dict, conf: dict) -> None:
@@ -255,12 +495,40 @@ async def line_webhook(
         if event_type == "join" and source_type == "group":
             updated_target_id = source.get("groupId", updated_target_id)
             logger.info("LINE join group: groupId=%s", updated_target_id)
+            # ส่งข้อความแจ้ง Group ID ในกลุ่มทันที
+            rt  = event.get("replyToken", "")
+            tok = conf.get("token", "")
+            if rt and tok:
+                await _send_reply(rt, (
+                    f"👋 สวัสดีครับ! PlaNeat OA ได้เข้ากลุ่มนี้แล้ว\n\n"
+                    f"📋 Group ID ของกลุ่มนี้คือ:\n"
+                    f"{updated_target_id}\n\n"
+                    f"กรุณาแจ้ง IT นำ Group ID นี้ไปตั้งค่าในระบบ PlaNeat\n"
+                    f"(หน้า Integration → ตั้งค่าระบบควบคุมโมดูล)"
+                ), tok)
 
         elif event_type == "message" and source_type == "group":
             group_id = source.get("groupId", "")
             user_id  = source.get("userId", "")
             msg_text = event.get("message", {}).get("text", "")
+            rt       = event.get("replyToken", "")
+            tok      = conf.get("token", "")
             logger.info("LINE group message: groupId=%s userId=%s text=%s", group_id, user_id, msg_text[:30])
+
+            # ถ้ากลุ่มนี้ยังไม่ได้บันทึก Group ID → แจ้ง Group ID อีกครั้ง
+            if group_id and not conf.get("targetId") and rt and tok:
+                await _send_reply(rt, (
+                    f"📋 Group ID ของกลุ่มนี้คือ:\n"
+                    f"{group_id}\n\n"
+                    f"กรุณาแจ้ง IT นำ Group ID นี้ไปตั้งค่าในระบบ PlaNeat\n"
+                    f"(หน้า Integration → ตั้งค่าระบบควบคุมโมดูล)"
+                ), tok)
+
+            # Y/N approval จากกลุ่ม (ถ้ามี)
+            if msg_text and user_id:
+                handled = await _handle_user_approval_reply(text=msg_text, user_id=user_id, reply_token=rt, access_token=tok)
+                if not handled:
+                    await _handle_approval_reply(text=msg_text, user_id=user_id, reply_token=rt, access_token=tok)
 
         elif event_type == "follow" and source_type == "user":
             # อัปเดต targetId ถ้ายังไม่มี
@@ -276,12 +544,15 @@ async def line_webhook(
             msg = event.get("message", {})
             if msg.get("type") == "text":
                 text = msg.get("text", "").strip()
-                await _handle_otp_message(
-                    text=text,
-                    user_id=source.get("userId", ""),
-                    reply_token=event.get("replyToken", ""),
-                    access_token=conf.get("token", ""),
-                )
+                uid = source.get("userId", "")
+                rt  = event.get("replyToken", "")
+                tok = conf.get("token", "")
+                # 1. ตรวจ Y/N อนุมัติสมาชิกใหม่ก่อน
+                handled = await _handle_user_approval_reply(text=text, user_id=uid, reply_token=rt, access_token=tok)
+                if handled:
+                    continue
+                # 2. ตรวจ Y/N อนุมัติค่าใช้จ่าย
+                await _handle_approval_reply(text=text, user_id=uid, reply_token=rt, access_token=tok)
 
     # อัปเดต targetId ใน config
     if updated_target_id != conf.get("targetId", ""):
@@ -312,7 +583,13 @@ async def get_webhook_info(config_id: str, request: Request):
     configs: list = doc.get("lineOaConfigs", []) if doc else []
     conf = next((c for c in configs if c.get("id") == config_id), None)
 
-    base = str(request.base_url).rstrip("/")
+    import os
+    public_url = os.environ.get("PUBLIC_URL", "").rstrip("/")
+    if not public_url:
+        # fallback: ใช้ request.base_url แต่บังคับ https
+        base = str(request.base_url).rstrip("/").replace("http://", "https://")
+    else:
+        base = public_url
     webhook_url = f"{base}/api/line/webhook/{config_id}"
 
     return {

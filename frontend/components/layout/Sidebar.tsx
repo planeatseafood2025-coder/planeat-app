@@ -49,7 +49,8 @@ const NAV: NavSection[] = [
   {
     label: 'IT & Dev',
     items: [
-      { page: 'it-access',  label: 'Access Control',      icon: 'admin_panel_settings' },
+      { page: 'it-access',    label: 'Access Control',      icon: 'admin_panel_settings' },
+      { page: 'integrations', label: 'การเชื่อมต่อระบบ',   icon: 'hub' },
     ],
   },
 ]

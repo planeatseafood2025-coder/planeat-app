@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import RedirectResponse
 from ..models.user import (
     LoginRequest, LoginResponse,
     RegisterRequest, RequestRegisterOTPRequest, ForgotPasswordRequest,
@@ -9,8 +10,27 @@ from ..services.auth_service import (
     register_user, send_otp, verify_otp, reset_password,
 )
 from ..deps import get_current_user
+from ..database import get_db
+import httpx, secrets, logging
+from datetime import datetime, timedelta, timezone
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger("planeat.auth")
+
+SETTINGS_DOC_ID = "system_settings"
+LINE_TOKEN_URL   = "https://api.line.me/oauth2/v2.1/token"
+LINE_PROFILE_URL = "https://api.line.me/v2/profile"
+
+
+class LineCompleteRequest(BaseModel):
+    state: str
+    phone: str
+    firstName: str
+    lastName: str
+    nickname: str = ""
+    jobTitle: str = ""
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -55,26 +75,6 @@ async def request_register_otp_endpoint(req: RequestRegisterOTPRequest):
     return result
 
 
-@router.post("/request-line-otp")
-async def request_line_otp_endpoint(req: RequestRegisterOTPRequest):
-    """สร้าง OTP สำหรับยืนยันผ่าน LINE OA — คืน sessionId + OTP code"""
-    from ..services.auth_service import request_line_otp
-    result = await request_line_otp(req.email, req.firstName)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["message"])
-    return result
-
-
-@router.get("/line-session/{session_id}")
-async def check_line_session(session_id: str):
-    """ตรวจสอบสถานะ LINE OTP session (ใช้โดย frontend polling fallback)"""
-    from ..database import get_db
-    db = get_db()
-    session = await db.registration_sessions.find_one({"_id": session_id}, {"otp": 0})
-    if not session:
-        raise HTTPException(status_code=404, detail="ไม่พบ session")
-    return {"status": session.get("status", "pending"), "lineUid": session.get("lineUid", "")}
-
 
 @router.post("/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest):
@@ -103,3 +103,200 @@ async def reset_password_endpoint(req: ResetPasswordRequest):
 @router.get("/me")
 async def me(current: dict = Depends(get_current_user)):
     return {"success": True, "username": current["sub"], "role": current["role"]}
+
+
+# ─── LINE Login OAuth 2.0 ──────────────────────────────────────────────────────
+
+@router.get("/line/login")
+async def line_login_start():
+    """สร้าง URL redirect ไป LINE Login"""
+    db = get_db()
+    doc = await db.system_settings.find_one({"_id": SETTINGS_DOC_ID})
+    if not doc or not doc.get("lineLogin", {}).get("clientId"):
+        raise HTTPException(status_code=400, detail="ยังไม่ได้ตั้งค่า LINE Login — กรุณาติดต่อ Admin")
+
+    config = doc["lineLogin"]
+    state = secrets.token_urlsafe(16)
+
+    # เก็บ state ไว้ตรวจสอบ CSRF
+    await db.line_login_states.insert_one({
+        "_id": state,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "expiresAt": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+    })
+
+    callback_url = config.get("callbackUrl", "")
+    client_id    = config.get("clientId", "")
+
+    url = (
+        f"https://access.line.me/oauth2/v2.1/authorize"
+        f"?response_type=code"
+        f"&client_id={client_id}"
+        f"&redirect_uri={callback_url}"
+        f"&state={state}"
+        f"&scope=profile%20openid"
+    )
+    return {"url": url}
+
+
+@router.get("/line/callback")
+async def line_login_callback(code: str, state: str):
+    """รับ code จาก LINE แล้วแลก token → ดึง profile → login/register"""
+    db = get_db()
+
+    # ตรวจ state CSRF
+    state_doc = await db.line_login_states.find_one({"_id": state})
+    if not state_doc:
+        raise HTTPException(status_code=400, detail="Invalid state")
+    await db.line_login_states.delete_one({"_id": state})
+
+    # ดึง config
+    doc = await db.system_settings.find_one({"_id": SETTINGS_DOC_ID})
+    config = (doc or {}).get("lineLogin", {})
+    client_id     = config.get("clientId", "")
+    client_secret = config.get("clientSecret", "")
+    callback_url  = config.get("callbackUrl", "")
+
+    # แลก code → access token
+    async with httpx.AsyncClient(timeout=10) as client:
+        token_res = await client.post(LINE_TOKEN_URL, data={
+            "grant_type":    "authorization_code",
+            "code":          code,
+            "redirect_uri":  callback_url,
+            "client_id":     client_id,
+            "client_secret": client_secret,
+        })
+        if token_res.status_code != 200:
+            raise HTTPException(status_code=400, detail="แลก token ไม่สำเร็จ")
+        token_data = token_res.json()
+
+        # ดึง profile
+        profile_res = await client.get(LINE_PROFILE_URL, headers={
+            "Authorization": f"Bearer {token_data['access_token']}"
+        })
+        if profile_res.status_code != 200:
+            raise HTTPException(status_code=400, detail="ดึง profile ไม่สำเร็จ")
+        profile = profile_res.json()
+
+    line_uid     = profile.get("userId", "")
+    display_name = profile.get("displayName", "")
+    picture_url  = profile.get("pictureUrl", "")
+
+    # ตรวจว่ามี user นี้ในระบบแล้วไหม
+    user = await db.users.find_one({"lineUid": line_uid})
+
+    if user:
+        # มีแล้ว — ตรวจสถานะ
+        if user.get("status") == "pending":
+            return {"status": "pending", "message": "บัญชีของคุณรอการอนุมัติจาก IT"}
+        if user.get("status") == "suspended":
+            return {"status": "suspended", "message": "บัญชีถูกระงับ กรุณาติดต่อ IT"}
+
+        # login สำเร็จ
+        token = create_token({"sub": user["username"], "role": user["role"]})
+        return {
+            "status":      "success",
+            "token":       token,
+            "username":    user["username"],
+            "name":        user["name"],
+            "role":        user["role"],
+            "permissions": user.get("permissions", {}),
+        }
+    else:
+        # ไม่มีในระบบ → ต้องกรอกข้อมูลเพิ่มเติม
+        # เก็บ LINE profile ชั่วคราวก่อน
+        temp_id = secrets.token_urlsafe(24)
+        await db.line_login_temp.insert_one({
+            "_id":         temp_id,
+            "lineUid":     line_uid,
+            "displayName": display_name,
+            "pictureUrl":  picture_url,
+            "expiresAt":   (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+            "createdAt":   datetime.now(timezone.utc).isoformat(),
+        })
+        return {
+            "status":      "new_user",
+            "tempId":      temp_id,
+            "displayName": display_name,
+            "pictureUrl":  picture_url,
+            "message":     "กรุณากรอกข้อมูลเพิ่มเติมเพื่อสมัครสมาชิก",
+        }
+
+
+@router.post("/line/complete")
+async def line_login_complete(req: LineCompleteRequest):
+    """กรอกข้อมูลเพิ่มเติมหลัง LINE Login → สร้าง user pending"""
+    db = get_db()
+
+    # ดึง temp session
+    temp = await db.line_login_temp.find_one({"_id": req.state})
+    if not temp:
+        raise HTTPException(status_code=400, detail="Session หมดอายุ กรุณา Login ด้วย LINE ใหม่")
+
+    expires = datetime.fromisoformat(temp["expiresAt"])
+    if datetime.now(timezone.utc) > expires:
+        raise HTTPException(status_code=400, detail="Session หมดอายุ กรุณา Login ด้วย LINE ใหม่")
+
+    line_uid = temp["lineUid"]
+
+    # ตรวจเบอร์ซ้ำ
+    if await db.users.find_one({"phone": req.phone.strip()}):
+        raise HTTPException(status_code=400, detail="เบอร์โทรนี้ถูกใช้ลงทะเบียนแล้ว")
+
+    # ตรวจ lineUid ซ้ำ
+    if await db.users.find_one({"lineUid": line_uid}):
+        raise HTTPException(status_code=400, detail="LINE นี้ลงทะเบียนแล้ว")
+
+    name = f"{req.firstName.strip()} {req.lastName.strip()}".strip()
+
+    # สร้าง temp username (จะถูกแทนที่ด้วย EMP0001 เมื่อ IT อนุมัติ)
+    temp_username = f"pending_{line_uid[:8]}"
+
+    doc = {
+        "username":        temp_username,
+        "password_hash":   "",
+        "name":            name,
+        "firstName":       req.firstName.strip(),
+        "lastName":        req.lastName.strip(),
+        "nickname":        req.nickname.strip(),
+        "phone":           req.phone.strip(),
+        "email":           "",
+        "lineUid":         line_uid,
+        "lineDisplayName": temp.get("displayName", ""),
+        "linePictureUrl":  temp.get("pictureUrl", ""),
+        "jobTitle":        req.jobTitle.strip(),
+        "role":            "general_user",
+        "status":          "pending",
+        "permissions":     {"labor": False, "raw": False, "chem": False, "repair": False},
+        "loginType":       "line",
+        "createdAt":       datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(doc)
+    await db.line_login_temp.delete_one({"_id": req.state})
+
+    # แจ้ง IT/Admin ทุกคนผ่าน LINE ส่วนตัว พร้อมปุ่มอนุมัติ/ปฏิเสธ
+    try:
+        from ..services.line_notify_service import notify_new_member_to_admins
+        await notify_new_member_to_admins(
+            username=temp_username,
+            name=name,
+            phone=req.phone.strip(),
+            line_uid=line_uid,
+            picture_url=temp.get("pictureUrl", ""),
+        )
+    except Exception as e:
+        logger.warning("ส่งแจ้งเตือน IT ไม่สำเร็จ: %s", e)
+
+    # แจ้งผู้สมัครทาง LINE ว่ารอการอนุมัติ
+    try:
+        from ..services.line_notify_service import _push_to_uid
+        await _push_to_uid(line_uid, [{"type": "text", "text": (
+            f"✅ สมัครสมาชิกสำเร็จแล้ว!\n"
+            f"ชื่อ: {name}\n\n"
+            f"⏳ บัญชีของคุณอยู่ระหว่างรอการอนุมัติจากทีม IT\n"
+            f"ระบบจะแจ้งเตือนพร้อม Username ทาง LINE นี้เมื่ออนุมัติแล้ว"
+        )}])
+    except Exception as e:
+        logger.warning("ส่งแจ้งเตือนผู้สมัครไม่สำเร็จ: %s", e)
+
+    return {"success": True, "message": "สมัครสมาชิกสำเร็จ รอการอนุมัติจาก IT"}

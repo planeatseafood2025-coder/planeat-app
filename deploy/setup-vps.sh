@@ -63,4 +63,41 @@ else
   warn "  git clone <your-repo-url> $APP_DIR"
 fi
 
+# ─── 7. สร้าง .env อัตโนมัติ ─────────────────────────────────
+ENV_FILE="$APP_DIR/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  info "ตั้งค่า .env — กรุณากรอกข้อมูลต่อไปนี้:"
+  echo ""
+
+  read -p "  Domain ของ VPS (เช่น app.example.com): " APP_DOMAIN
+  read -p "  MongoDB Password: " MONGO_PASSWORD
+  read -p "  JWT Secret (กด Enter = สร้างอัตโนมัติ): " JWT_SECRET
+  JWT_SECRET=${JWT_SECRET:-$(openssl rand -hex 32)}
+  read -p "  LINE Channel Token (ถ้ายังไม่มีกด Enter ข้ามได้): " LINE_TOKEN
+  read -p "  LINE Channel Secret (ถ้ายังไม่มีกด Enter ข้ามได้): " LINE_SECRET
+
+  cat > "$ENV_FILE" <<EOF
+# ── Database ──────────────────────────────────────
+MONGO_PASSWORD=${MONGO_PASSWORD}
+
+# ── Auth ──────────────────────────────────────────
+JWT_SECRET=${JWT_SECRET}
+
+# ── App Domain ────────────────────────────────────
+APP_DOMAIN=https://${APP_DOMAIN}
+CORS_ORIGINS=https://${APP_DOMAIN}
+
+# ── LINE OA ───────────────────────────────────────
+LINE_CHANNEL_TOKEN=${LINE_TOKEN}
+LINE_CHANNEL_SECRET=${LINE_SECRET}
+
+# ── Logging ───────────────────────────────────────
+LOG_LEVEL=INFO
+EOF
+
+  info ".env สร้างแล้วที่ $ENV_FILE"
+else
+  info ".env มีอยู่แล้ว — ข้ามขั้นตอนนี้"
+fi
+
 info "Setup complete! Next step: run  bash deploy/configure-nginx.sh  after setting your domain."

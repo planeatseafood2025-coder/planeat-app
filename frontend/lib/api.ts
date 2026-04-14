@@ -54,10 +54,6 @@ export const authApi = {
     request('POST', '/api/auth/login', { username, password }),
   requestRegisterOtp: (email: string, firstName: string) =>
     request('POST', '/api/auth/request-register-otp', { email, firstName }),
-  requestLineOtp: (email: string, firstName: string) =>
-    request('POST', '/api/auth/request-line-otp', { email, firstName }),
-  checkLineSession: (sessionId: string) =>
-    request<{ status: string; lineUid: string }>('GET', `/api/auth/line-session/${sessionId}`),
   register: (payload: {
     firstName: string; lastName: string; nickname?: string
     phone: string; email: string; lineId?: string; jobTitle?: string

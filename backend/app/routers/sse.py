@@ -5,7 +5,7 @@ sse.py — Server-Sent Events
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Query, Request
 from sse_starlette.sse import EventSourceResponse
@@ -129,42 +129,5 @@ async def chat_stream(
     return EventSourceResponse(event_generator())
 
 
-# ─── Registration (LINE OTP) stream ──────────────────────────────────────────
-
-@router.get("/register/{session_id}")
-async def register_stream(request: Request, session_id: str):
-    """
-    Stream สถานะการยืนยัน LINE OTP สำหรับหน้าสมัครสมาชิก
-    ไม่ต้องการ auth — ใช้ sessionId เป็นตัวระบุ
-    """
-    db = get_db()
-
-    async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                session = await db.registration_sessions.find_one(
-                    {"_id": session_id}, {"otp": 0}
-                )
-                if not session:
-                    yield {"event": "status", "data": _json({"status": "not_found"})}
-                    break
-                status = session.get("status", "pending")
-                yield {
-                    "event": "status",
-                    "data": _json({"status": status, "lineUid": session.get("lineUid", "")}),
-                }
-                if status == "verified":
-                    break
-                expires = datetime.fromisoformat(session["expiresAt"])
-                now_utc = datetime.now(timezone.utc)
-                if now_utc > expires:
-                    yield {"event": "status", "data": _json({"status": "expired"})}
-                    break
-            except Exception as e:
-                logger.warning("SSE register error: %s", e)
-
-            await asyncio.sleep(3)
 
     return EventSourceResponse(event_generator())

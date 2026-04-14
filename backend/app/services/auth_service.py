@@ -168,41 +168,6 @@ async def request_register_otp(email: str, first_name: str) -> dict:
     return {"success": True, "message": f"ส่ง OTP ไปยังอีเมลของคุณแล้ว"}
 
 
-async def request_line_otp(email: str, first_name: str) -> dict:
-    """
-    สร้าง OTP session สำหรับยืนยันตัวตนผ่าน LINE OA
-    คืน sessionId และ OTP code ให้ frontend แสดงต่อ user
-    """
-    import uuid
-    db = get_db()
-    existing = await db.users.find_one({"email": email.strip()})
-    if existing:
-        return {"success": False, "message": "อีเมลนี้ถูกใช้ลงทะเบียนแล้ว"}
-
-    otp = _gen_otp()
-    session_id = str(uuid.uuid4())
-    expires = datetime.now(timezone.utc) + timedelta(minutes=10)
-
-    # ลบ session เก่าของ email นี้
-    await db.registration_sessions.delete_many({"email": email.strip()})
-    await db.registration_sessions.insert_one({
-        "_id":       session_id,
-        "email":     email.strip(),
-        "firstName": first_name.strip(),
-        "otp":       otp,
-        "status":    "pending",   # pending | verified
-        "lineUid":   "",
-        "expiresAt": expires.isoformat(),
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-    })
-
-    return {
-        "success":   True,
-        "sessionId": session_id,
-        "otp":       otp,
-        "message":   "สร้าง OTP สำเร็จ กรุณาส่งรหัสไปที่ LINE OA",
-    }
-
 
 async def send_otp(username: str) -> dict:
     db = get_db()
@@ -304,6 +269,25 @@ async def get_all_users(search: str = "", page: int = 1, per_page: int = 20) -> 
     return {"success": True, "users": users, "total": total, "page": page, "perPage": per_page}
 
 
+async def generate_emp_username(db) -> str:
+    """สร้าง username รูปแบบ EMP0001, EMP0002, ..."""
+    # หา EMP ล่าสุดในระบบ
+    cursor = db.users.find(
+        {"username": {"$regex": "^EMP\\d+$"}},
+        {"username": 1}
+    ).sort("username", -1).limit(1)
+    last = await cursor.to_list(1)
+    if last:
+        try:
+            last_num = int(last[0]["username"][3:])
+            next_num = last_num + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+    return f"EMP{next_num:04d}"
+
+
 async def update_user(username: str, data: dict) -> dict:
     db = get_db()
     user = await db.users.find_one({"username": username})
@@ -322,8 +306,30 @@ async def update_user(username: str, data: dict) -> dict:
     if not fields:
         return {"success": False, "message": "ไม่มีข้อมูลที่ต้องอัปเดต"}
 
+    # ถ้า status เปลี่ยนเป็น active และ username ยังเป็น temp (pending_xxx) → สร้าง EMP username
+    new_status = fields.get("status", user.get("status", ""))
+    is_temp_username = user.get("username", "").startswith("pending_")
+    if new_status == "active" and is_temp_username:
+        emp_username = await generate_emp_username(db)
+        fields["username"] = emp_username
+        # แจ้งผู้ใช้ทาง LINE
+        line_uid = user.get("lineUid", "")
+        if line_uid:
+            try:
+                from .line_notify_service import _push_to_uid
+                await _push_to_uid(line_uid, [{"type": "text", "text": (
+                    f"🎉 บัญชีของคุณได้รับการอนุมัติแล้ว!\n"
+                    f"Username: {emp_username}\n\n"
+                    f"กรุณาเข้าสู่ระบบด้วย LINE ได้เลยครับ/ค่ะ"
+                )}])
+            except Exception as e:
+                pass
+
     await db.users.update_one({"username": username}, {"$set": fields})
-    return {"success": True, "message": "อัปเดตผู้ใช้สำเร็จ"}
+
+    # คืน username ใหม่ถ้ามีการเปลี่ยน
+    new_username = fields.get("username", username)
+    return {"success": True, "message": "อัปเดตผู้ใช้สำเร็จ", "newUsername": new_username}
 
 
 async def delete_user(username: str) -> dict:

@@ -60,6 +60,7 @@ services:
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      PUBLIC_URL: ${PUBLIC_URL:-}
     volumes:
       - pdf_data:/app/pdf_storage
     depends_on:

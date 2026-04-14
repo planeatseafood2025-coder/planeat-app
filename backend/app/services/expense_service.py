@@ -233,6 +233,13 @@ async def submit_draft(payload: dict, current: dict) -> dict:
     if notifs:
         await db.notifications.insert_many(notifs)
 
+    # แจ้ง LINE: recorder + managers (Y/N)
+    try:
+        from ..services.line_notify_service import notify_draft_submitted
+        await notify_draft_submitted(draft)
+    except Exception as _e:
+        print(f"[LINE notify] draft submitted: {_e}")
+
     return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
 
 
@@ -438,8 +445,12 @@ async def submit_draft_dynamic(payload: dict, current: dict) -> dict:
     if notifs:
         await db.notifications.insert_many(notifs)
 
-    # [PORT] LINE Group notify
-    # await send_line_group(f"📋 รายการใหม่รอตรวจสอบ\n{recorder_name} | {cat['name']} | {date_str} | ฿{total:,.0f}")
+    # แจ้ง LINE: recorder + managers (Y/N)
+    try:
+        from ..services.line_notify_service import notify_draft_submitted
+        await notify_draft_submitted(draft)
+    except Exception as _e:
+        print(f"[LINE notify] draft submitted dynamic: {_e}")
 
     return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
 

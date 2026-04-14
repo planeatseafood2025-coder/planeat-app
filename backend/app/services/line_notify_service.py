@@ -4,6 +4,7 @@ line_notify_service.py — ส่ง LINE แจ้งเตือนตาม e
 กฎ:
 - กลุ่ม: LINE OA Messaging API (push) ผ่าน lineOaConfigs (mode=send/both)
 - ส่วนตัว: LINE Notify API ใช้ lineNotifyToken จาก profile ของผู้ใช้
+- ส่วนตัวผ่าน OA: push ไปที่ lineUid ของ user โดยตรง (ต้อง add OA ก่อน)
 """
 import httpx
 from datetime import datetime
@@ -57,6 +58,97 @@ async def _get_users_by_role(roles: list) -> list:
     return await cursor.to_list(None)
 
 
+def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: str, detail: str) -> dict:
+    """สร้าง Flex Message Card สำหรับขออนุมัติค่าใช้จ่าย"""
+    return {
+        "type": "flex",
+        "altText": f"🔔 รายการรอการอนุมัติ — {recorder_name} / {cat} / ฿{amount}",
+        "contents": {
+            "type": "bubble",
+            "size": "kilo",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#1e3a8a",
+                "paddingAll": "14px",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "🔔 รายการรอการอนุมัติ",
+                        "color": "#93c5fd",
+                        "size": "sm",
+                        "weight": "bold",
+                    }
+                ],
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "paddingAll": "14px",
+                "spacing": "sm",
+                "contents": [
+                    _flex_row("ผู้กรอก", recorder_name, "#1e293b", bold=True),
+                    _flex_row("หมวด",    cat,           "#1e293b"),
+                    _flex_row("วันที่",   date_str,      "#475569"),
+                    _flex_row("ยอด",     f"฿{amount}",  "#dc2626", bold=True),
+                    _flex_row("รายละเอียด", detail,     "#475569"),
+                    {"type": "separator", "margin": "md"},
+                    {
+                        "type": "text",
+                        "text": "อนุมัติรายการนี้ไหม?",
+                        "size": "sm",
+                        "color": "#334155",
+                        "margin": "md",
+                        "weight": "bold",
+                    },
+                ],
+            },
+            "footer": {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "sm",
+                "paddingAll": "12px",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#16a34a",
+                        "height": "sm",
+                        "action": {
+                            "type": "message",
+                            "label": "✅ อนุมัติ",
+                            "text": "Y",
+                        },
+                    },
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#dc2626",
+                        "height": "sm",
+                        "action": {
+                            "type": "message",
+                            "label": "❌ ปฏิเสธ",
+                            "text": "N",
+                        },
+                    },
+                ],
+            },
+        },
+    }
+
+
+def _flex_row(label: str, value: str, value_color: str = "#1e293b", bold: bool = False) -> dict:
+    return {
+        "type": "box",
+        "layout": "horizontal",
+        "contents": [
+            {"type": "text", "text": label, "size": "sm", "color": "#94a3b8", "flex": 3},
+            {"type": "text", "text": value,  "size": "sm", "color": value_color,
+             "flex": 7, "wrap": True, "weight": "bold" if bold else "regular"},
+        ],
+    }
+
+
 async def _notify_personal(token: str, message: str) -> bool:
     """ส่ง LINE Notify ส่วนตัว (ง่ายกว่า Messaging API)"""
     try:
@@ -72,34 +164,190 @@ async def _notify_personal(token: str, message: str) -> bool:
         return False
 
 
+# ─── ส่ง push ไปหา lineUid ส่วนตัว (ผ่าน mainLineOa token) ─────────────────
+
+async def _push_to_uid(line_uid: str, messages: list) -> bool:
+    """Push message ไปยัง lineUid ส่วนตัวโดยใช้ mainLineOa token"""
+    if not line_uid:
+        return False
+    db = get_db()
+    doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
+    token = doc.get("mainLineOa", {}).get("token", "")
+    if not token:
+        return False
+    return await _push(token, line_uid, messages)
+
+
 # ─── Event: draft submitted (ขออนุมัติ) ─────────────────────────────────────
+
+async def notify_new_member_to_admins(
+    username: str, name: str, phone: str, line_uid: str, picture_url: str = ""
+) -> None:
+    """แจ้ง IT/Admin ทุกคนผ่าน LINE ส่วนตัว เมื่อมีสมาชิกใหม่รอการอนุมัติ"""
+    db = get_db()
+    import uuid as _uuid
+
+    admins = await db.users.find(
+        {"role": {"$in": ["it", "admin", "super_admin"]}, "status": "active"},
+        {"username": 1, "lineUid": 1, "lineNotifyToken": 1, "_id": 0}
+    ).to_list(20)
+
+    flex = _build_member_approval_flex(name, username, phone, picture_url)
+    plain = (
+        f"🔔 สมาชิกใหม่รอการอนุมัติ\n"
+        f"ชื่อ: {name}\n"
+        f"Username: {username}\n"
+        f"เบอร์: {phone}\n"
+        f"ตอบ Y = อนุมัติ / N = ปฏิเสธ"
+    )
+
+    for admin in admins:
+        admin_line_uid = admin.get("lineUid", "")
+        notify_token   = admin.get("lineNotifyToken", "")
+        if not admin_line_uid and not notify_token:
+            continue
+
+        if admin_line_uid:
+            # บันทึก pending state สำหรับรับคำตอบ Y/N
+            await db.line_user_approval_pending.insert_one({
+                "_id":              str(_uuid.uuid4()),
+                "adminLineUid":     admin_line_uid,
+                "adminUsername":    admin.get("username", ""),
+                "targetUsername":   username,
+                "targetLineUid":    line_uid,
+                "createdAt":        datetime.now().isoformat(),
+            })
+            await _push_to_uid(admin_line_uid, [flex])
+        elif notify_token:
+            await _notify_personal(notify_token, f"\n{plain}")
+
+
+def _build_member_approval_flex(name: str, username: str, phone: str, picture_url: str = "") -> dict:
+    """Flex Message Card สำหรับอนุมัติสมาชิกใหม่"""
+    header_contents = [
+        {"type": "text", "text": "🔔 สมาชิกใหม่รอการอนุมัติ",
+         "color": "#93c5fd", "size": "sm", "weight": "bold"},
+    ]
+    body_contents = [
+        _flex_row("ชื่อ",      name,     "#1e293b", bold=True),
+        _flex_row("Username",  username, "#1e293b"),
+        _flex_row("เบอร์",     phone,    "#475569"),
+        _flex_row("ช่องทาง",   "LINE",   "#0ea5e9"),
+    ]
+    if picture_url:
+        body_contents.insert(0, {
+            "type": "image", "url": picture_url,
+            "size": "xxs", "aspectMode": "cover",
+            "aspectRatio": "1:1", "align": "center",
+        })
+
+    return {
+        "type": "flex",
+        "altText": f"🔔 สมาชิกใหม่รอการอนุมัติ — {name} ({username})",
+        "contents": {
+            "type": "bubble", "size": "kilo",
+            "header": {
+                "type": "box", "layout": "vertical",
+                "backgroundColor": "#1e3a8a", "paddingAll": "14px",
+                "contents": header_contents,
+            },
+            "body": {
+                "type": "box", "layout": "vertical",
+                "paddingAll": "14px", "spacing": "sm",
+                "contents": body_contents + [
+                    {"type": "separator", "margin": "md"},
+                    {"type": "text", "text": "อนุมัติสมาชิกรายนี้ไหม?",
+                     "size": "sm", "color": "#334155", "margin": "md", "weight": "bold"},
+                ],
+            },
+            "footer": {
+                "type": "box", "layout": "horizontal",
+                "spacing": "sm", "paddingAll": "12px",
+                "contents": [
+                    {"type": "button", "style": "primary", "color": "#16a34a", "height": "sm",
+                     "action": {"type": "message", "label": "✅ อนุมัติ", "text": "Y"}},
+                    {"type": "button", "style": "primary", "color": "#dc2626", "height": "sm",
+                     "action": {"type": "message", "label": "❌ ปฏิเสธ", "text": "N"}},
+                ],
+            },
+        },
+    }
+
 
 async def notify_draft_submitted(draft: dict) -> None:
     """
-    แจ้ง accounting_manager + accounting_manager ส่วนตัว
-    เมื่อมีรายการรอดำเนินการ
+    1. แจ้ง recorder (ผู้กรอก) ว่าส่งสำเร็จ รอการอนุมัติ
+    2. แจ้ง accounting_manager ส่วนตัวผ่าน lineUid พร้อมปุ่ม Y/N
     """
-    submitter = draft.get("recorderName") or draft.get("recorder", "")
-    cat       = draft.get("category", "")
-    amount    = _fmt(float(draft.get("amount", 0)))
-    detail    = draft.get("detail", "")[:40]
-    date_str  = draft.get("date", "")
-    pending_url = f"{FRONTEND_URL}/expense-control?tab=pending"
+    db = get_db()
+    draft_id     = draft.get("_id") or draft.get("id", "")
+    recorder     = draft.get("recorder", "")
+    recorder_name = draft.get("recorderName", recorder)
+    cat          = draft.get("category", "")
+    amount       = _fmt(float(draft.get("total", draft.get("amount", 0))))
+    detail       = (draft.get("detail", "") or "")[:50]
+    date_str     = draft.get("date", "")
 
-    # ส่งส่วนตัวไปที่ accounting_manager ทุกคนผ่าน LINE Notify
-    managers = await _get_users_by_role(["accounting_manager", "admin", "super_admin"])
-    for u in managers:
-        if u.get("lineNotifyToken"):
-            text = (
-                f"🔔 รายการรอดำเนินการ\n"
+    # ── 1. แจ้ง recorder (ผู้กรอก) ──────────────────────────────────────────
+    recorder_user = await db.users.find_one(
+        {"username": recorder},
+        {"lineUid": 1, "lineNotifyToken": 1, "_id": 0}
+    )
+    if recorder_user:
+        msg_recorder = (
+            f"📋 ส่งรายการสำเร็จ รอการอนุมัติ\n"
+            f"หมวด: {cat}\n"
+            f"วันที่: {date_str}\n"
+            f"ยอด: ฿{amount}\n"
+            f"รายละเอียด: {detail or '-'}\n"
+            f"ระบบจะแจ้งเมื่อผู้จัดการอนุมัติแล้ว"
+        )
+        # ส่งผ่าน LINE OA (push ไปหา lineUid ส่วนตัว)
+        if recorder_user.get("lineUid"):
+            await _push_to_uid(recorder_user["lineUid"], [{"type": "text", "text": msg_recorder}])
+        # fallback: LINE Notify ถ้าตั้งค่าไว้
+        elif recorder_user.get("lineNotifyToken"):
+            await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg_recorder}")
+
+    # ── 2. แจ้ง accounting_manager ส่วนตัวผ่าน lineUid ─────────────────────
+    managers = await db.users.find(
+        {"role": {"$in": ["accounting_manager", "admin", "super_admin"]},
+         "status": "active",
+         "username": {"$ne": recorder}},
+        {"username": 1, "firstName": 1, "lastName": 1, "nickname": 1,
+         "lineUid": 1, "lineNotifyToken": 1, "_id": 0}
+    ).to_list(20)
+
+    for mgr in managers:
+        line_uid = mgr.get("lineUid", "")
+        notify_token = mgr.get("lineNotifyToken", "")
+        if not line_uid and not notify_token:
+            continue
+
+        if line_uid:
+            # บันทึก pending approval state สำหรับรับคำตอบ Y/N
+            import uuid as _uuid
+            await db.line_approval_pending.insert_one({
+                "_id": str(_uuid.uuid4()),
+                "managerLineUid": line_uid,
+                "managerUsername": mgr.get("username", ""),
+                "draftId": draft_id,
+                "createdAt": datetime.now().isoformat(),
+            })
+            flex = _build_approval_flex(recorder_name, cat, date_str, amount, detail or "-")
+            await _push_to_uid(line_uid, [flex])
+        elif notify_token:
+            # fallback LINE Notify (ไม่รองรับ Flex)
+            msg_mgr = (
+                f"🔔 รายการรอการอนุมัติ\n"
+                f"ผู้กรอก: {recorder_name}\n"
                 f"หมวด: {cat}\n"
-                f"ผู้บันทึก: {submitter}\n"
                 f"วันที่: {date_str}\n"
-                f"รายละเอียด: {detail}\n"
                 f"ยอด: ฿{amount}\n"
-                f"ดูรายการ: {pending_url}"
+                f"รายละเอียด: {detail or '-'}\n"
+                f"ตอบ Y = อนุมัติ / N = ไม่อนุมัติ"
             )
-            await _notify_personal(u["lineNotifyToken"], text)
+            await _notify_personal(notify_token, f"\n{msg_mgr}")
 
 
 # ─── Event: draft approved (อนุมัติแล้ว) ────────────────────────────────────

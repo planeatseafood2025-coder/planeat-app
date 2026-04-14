@@ -29,9 +29,15 @@ class ModuleConnections(BaseModel):
     access:        str = ""
     accessName:    str = ""
 
+class LineLoginConfig(BaseModel):
+    clientId: str = ""
+    clientSecret: str = ""
+    callbackUrl: str = ""
+
 class SystemSettings(BaseModel):
     # ── การเชื่อมต่อหลัก ──
     mainLineOa: Optional[MainLineOA] = None
+    lineLogin: Optional[LineLoginConfig] = None
     # ── การเชื่อมต่อขั้นสูง ──
     lineOaConfigs: List[LineOASetting] = []
     moduleConnections: Optional[ModuleConnections] = None
