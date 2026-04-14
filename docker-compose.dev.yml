@@ -1,0 +1,154 @@
+services:
+
+  # ─── MongoDB 8 ──────────────────────────────────────────────────
+  mongodb:
+    image: mongo:8
+    container_name: planeat-dev-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: planeat
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: planeat_dev
+    volumes:
+      - mongo_dev_data:/data/db
+    networks:
+      - planeat-dev-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─── Redis ──────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: planeat-dev-redis
+    restart: unless-stopped
+    networks:
+      - planeat-dev-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ─── Backend (FastAPI) ──────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: planeat-dev-backend
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      MONGO_URL: mongodb://planeat:${MONGO_PASSWORD}@mongodb:27017/planeat_dev?authSource=admin
+      MONGO_PASSWORD: ${MONGO_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      PDF_STORAGE_PATH: /app/pdf_storage
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://planeatdev.duckdns.org}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+    volumes:
+      - pdf_dev_data:/app/pdf_storage
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - planeat-dev-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─── ARQ Background Worker ──────────────────────────────────────
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: planeat-dev-worker
+    command: ["arq", "app.worker.WorkerSettings"]
+    restart: unless-stopped
+    environment:
+      MONGO_URL: mongodb://planeat:${MONGO_PASSWORD}@mongodb:27017/planeat_dev?authSource=admin
+      MONGO_PASSWORD: ${MONGO_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_URL: redis://redis:6379
+      PDF_STORAGE_PATH: /app/pdf_storage
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - pdf_dev_data:/app/pdf_storage
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - planeat-dev-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─── Frontend (Next.js) ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${APP_DOMAIN:-http://localhost:8002}
+    container_name: planeat-dev-frontend
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${APP_DOMAIN:-http://localhost:8002}
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - planeat-dev-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  planeat-dev-net:
+    driver: bridge
+
+volumes:
+  mongo_dev_data:
+    driver: local
+  pdf_dev_data:
+    driver: local
