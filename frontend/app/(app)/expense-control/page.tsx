@@ -2361,12 +2361,21 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
                         item={notifMonthly}
                         onItem={setNotifMonthly}
                         extra={
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <label style={{ fontSize: 12, color: '#64748b' }}>ส่งวันที่</label>
-                            <input type="number" min={1} max={28} value={notifMonthlyDay}
-                              onChange={e => setNotifMonthlyDay(Math.min(28, Math.max(1, parseInt(e.target.value) || 1)))}
-                              className="form-input" style={{ width: 70, fontSize: 12, padding: '5px 8px' }} />
-                            <span style={{ fontSize: 12, color: '#94a3b8' }}>ของเดือน (สูงสุด 28)</span>
+                          <div style={{ marginTop: 6 }}>
+                            <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 6 }}>ส่งวันที่</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                              {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                                <button key={d} type="button" onClick={() => setNotifMonthlyDay(d)}
+                                  style={{
+                                    padding: '5px 0', borderRadius: 6, fontSize: 12, fontWeight: notifMonthlyDay === d ? 700 : 400,
+                                    border: 'none', cursor: 'pointer',
+                                    background: notifMonthlyDay === d ? '#16a34a' : '#f1f5f9',
+                                    color: notifMonthlyDay === d ? 'white' : '#475569',
+                                  }}>
+                                  {d}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         }
                       />

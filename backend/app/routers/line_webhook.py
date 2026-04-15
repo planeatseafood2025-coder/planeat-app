@@ -146,24 +146,21 @@ async def _handle_user_approval_reply(text: str, user_id: str, reply_token: str,
     await db.line_user_approval_pending.delete_one({"_id": pending["_id"]})
 
     if normalized in ("Y", "YES", "ใช่"):
-        await db.users.update_one(
-            {"username": target_username},
-            {"$set": {"status": "active", "approvedBy": admin_username, "approvedAt": now_str}}
-        )
-        # แจ้งผู้สมัครทาง LINE
-        if target_line_uid:
-            from ..services.line_notify_service import _push_to_uid
-            await _push_to_uid(target_line_uid, [{"type": "text", "text": (
-                f"🎉 บัญชีของคุณได้รับการอนุมัติแล้ว!\n"
-                f"Username: {target_username}\n\n"
-                f"กรุณาเข้าสู่ระบบได้เลยครับ/ค่ะ"
-            )}])
+        # ใช้ update_user() เพื่อ generate EMP username อัตโนมัติและส่งแจ้งเตือนในที่เดียว
+        from ..services.auth_service import update_user
+        result = await update_user(target_username, {
+            "status": "active",
+            "approvedBy": admin_username,
+            "approvedAt": now_str,
+        })
+        # หา EMP username ที่สร้างใหม่
+        new_username = result.get("newUsername", target_username)
         await _send_reply(
             reply_token,
-            f"✅ อนุมัติสมาชิกแล้ว\nชื่อ: {name}\nUsername: {target_username}\nเบอร์: {phone}",
+            f"✅ อนุมัติสมาชิกแล้ว\nชื่อ: {name}\nUsername: {new_username}\nเบอร์: {phone}",
             access_token
         )
-        # แจ้ง admin คนอื่นที่ยังรืออยู่
+        # แจ้ง admin คนอื่นที่ยังรออยู่
         await _notify_other_admins_member_handled(
             target_username, name, admin_username, "อนุมัติ"
         )
@@ -321,6 +318,24 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
             elif recorder_user.get("lineNotifyToken"):
                 from ..services.line_notify_service import _notify_personal
                 await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg}")
+
+        # แจ้งกลุ่ม LINE OA + ผู้มีสิทธิ์ในหมวดนั้น
+        try:
+            from ..services.line_notify_service import notify_expense_approved
+            # ใช้ expense doc แรกที่ insert (หรือ draft เป็น proxy)
+            expense_proxy = {
+                "catKey":      draft.get("catKey", ""),
+                "category":    category,
+                "amount":      total,
+                "detail":      draft.get("detail", ""),
+                "date":        date_str,
+                "date_iso":    draft.get("date_iso", ""),
+                "recorderName": recorder_name,
+                "recorder":    draft["recorder"],
+            }
+            await notify_expense_approved(expense_proxy, approver_username=manager_username)
+        except Exception as _e:
+            logger.warning("notify_expense_approved failed: %s", _e)
 
         await _send_reply(
             reply_token,

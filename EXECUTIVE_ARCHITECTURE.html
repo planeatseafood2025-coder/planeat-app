@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PlaNeat — Executive Architecture Blueprint</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d2e;
+      --surface2: #232640;
+      --border: #2d3158;
+      --text: #e8eaf6;
+      --muted: #8892b0;
+      --green: #4ade80;
+      --green-bg: #052e16;
+      --blue: #60a5fa;
+      --blue-bg: #0f2d5a;
+      --purple: #a78bfa;
+      --purple-bg: #2e1065;
+      --amber: #fbbf24;
+      --amber-bg: #451a03;
+      --pink: #f472b6;
+      --pink-bg: #4a044e;
+      --accent: #6366f1;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Sarabun', 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .hero {
+      background: linear-gradient(135deg, #1a1d2e 0%, #0f1117 40%, #1a0a2e 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 60px 40px 50px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99,102,241,0.15) 0%, transparent 70%);
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.4);
+      color: var(--purple);
+      padding: 6px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 800;
+      background: linear-gradient(135deg, #e8eaf6 0%, #a78bfa 50%, #60a5fa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+    .hero p {
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    /* Layout */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 32px 80px;
+    }
+
+    /* Section */
+    .section {
+      margin-top: 60px;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .section-number {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .section h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .section h2 small {
+      display: block;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* Card */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+
+    /* Summary Grid */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .summary-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .summary-card .label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+    .summary-card .value {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: var(--surface2);
+      padding: 14px 18px;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 13px 18px;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(45,49,88,0.5);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(99,102,241,0.05); }
+
+    /* Status badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-green { background: rgba(74,222,128,0.15); color: var(--green); }
+    .badge-blue  { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .badge-amber { background: rgba(251,191,36,0.15); color: var(--amber); }
+    .badge-pink  { background: rgba(244,114,182,0.15); color: var(--pink); }
+
+    /* Diagram */
+    .diagram-wrap {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 16px 0;
+      overflow-x: auto;
+    }
+    .diagram-wrap .mermaid { display: flex; justify-content: center; }
+
+    /* Timeline */
+    .timeline { position: relative; padding-left: 32px; }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(180deg, var(--green), var(--blue), var(--amber), var(--pink));
+      border-radius: 2px;
+    }
+    .tl-item { position: relative; margin-bottom: 32px; }
+    .tl-dot {
+      position: absolute;
+      left: -28px;
+      top: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid;
+      background: var(--bg);
+    }
+    .tl-dot.green { border-color: var(--green); background: var(--green-bg); }
+    .tl-dot.blue  { border-color: var(--blue);  background: var(--blue-bg);  }
+    .tl-dot.amber { border-color: var(--amber); background: var(--amber-bg); }
+    .tl-dot.pink  { border-color: var(--pink);  background: var(--pink-bg);  }
+    .tl-header { font-weight: 700; font-size: 16px; color: #fff; margin-bottom: 4px; }
+    .tl-sub { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+    .tl-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tl-tag {
+      padding: 4px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .tl-tag.green { background: var(--green-bg); color: var(--green); }
+    .tl-tag.blue  { background: var(--blue-bg);  color: var(--blue);  }
+    .tl-tag.amber { background: var(--amber-bg); color: var(--amber); }
+    .tl-tag.pink  { background: var(--pink-bg);  color: var(--pink);  }
+
+    /* LINE section */
+    .line-commands { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 600px) { .line-commands { grid-template-columns: 1fr; } }
+    .cmd-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .cmd-key {
+      font-family: 'Inter', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--green);
+      background: rgba(74,222,128,0.1);
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .cmd-desc { font-size: 13px; color: var(--muted); }
+
+    /* 3-phase summary */
+    .phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    @media (max-width: 700px) { .phases { grid-template-columns: 1fr; } }
+    .phase-card {
+      border-radius: 14px;
+      padding: 24px;
+      border: 2px solid;
+    }
+    .phase-card.now   { border-color: var(--green);  background: var(--green-bg);  }
+    .phase-card.mid   { border-color: var(--blue);   background: var(--blue-bg);   }
+    .phase-card.full  { border-color: var(--pink);   background: var(--pink-bg);   }
+    .phase-card .ph-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; opacity: .7; margin-bottom: 6px; }
+    .phase-card .ph-title { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 12px; }
+    .phase-card ul { list-style: none; }
+    .phase-card ul li { font-size: 14px; padding: 3px 0; opacity: .85; }
+    .phase-card ul li::before { content: '→ '; opacity: .5; }
+
+    /* Alert */
+    .alert {
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+    .alert-tip      { background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.3); }
+    .alert-important { background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.3); }
+    .alert-label { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    .alert-tip .alert-label      { color: var(--green); }
+    .alert-important .alert-label { color: var(--purple); }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 32px;
+      color: var(--muted);
+      font-size: 13px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Print */
+    @media print {
+      body { background: #fff; color: #000; }
+      .hero { background: #f8f9ff; }
+      .card, .summary-card, .cmd-card { border: 1px solid #ddd; background: #fff; }
+      .diagram-wrap { border: 1px solid #ddd; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-badge">Executive Blueprint · เมษายน 2026</div>
+  <h1>🏢 PlaNeat Architecture</h1>
+  <p>แผนสถาปัตยกรรมระบบและทิศทางสู่ ERP เต็มรูปแบบ + LINE Command Center</p>
+</div>
+
+<div class="container">
+
+  <!-- SECTION 0: EXECUTIVE SUMMARY -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">📌</div>
+      <div>
+        <h2>บทสรุปสำหรับผู้บริหาร <small>Executive Summary</small></h2>
+      </div>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="label">ระบบปัจจุบัน</div>
+        <div class="value">Web Dashboard + CRM + Expense + Inventory</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">จุดเด่นหลัก</div>
+        <div class="value">เชื่อม LINE OA ตั้งแต่ต้น · ทำงาน Real-time</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">เป้าหมาย 12 เดือน</div>
+        <div class="value">ERP ครบวงจร: Quotation · Billing · HR · Payroll</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">ช่องทางควบคุม</div>
+        <div class="value">Web Dashboard + LINE OA (สั่งงานผ่านไลน์ได้)</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">รูปแบบ Deployment</div>
+        <div class="value">Cloud-ready Docker · ขยายได้ไม่จำกัด</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">สถานะล่าสุด</div>
+        <div class="value"><span class="badge badge-green">✅ Phase 1 เสร็จ · Phase 2 กำลังทำ</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 1: ARCHITECTURE DIAGRAM -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">1</div>
+      <div>
+        <h2>สถาปัตยกรรมระบบปัจจุบัน <small>Current System Architecture</small></h2>
+      </div>
+    </div>
+    <div class="card">
+      <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">ระบบออกแบบแบบ <strong style="color:#fff">Layered Architecture</strong> — แบ่งชั้นชัดเจน เพิ่มฟีเจอร์ใหม่โดยไม่กระทบส่วนเดิม</p>
+      <div class="diagram-wrap">
+        <div class="mermaid">
+graph TB
+    subgraph EXT["ช่องทางการเข้าถึง"]
+        WEB["🖥️ Web Browser\nผู้บริหาร / พนักงาน"]
+        LINE_EXEC["📱 LINE OA\nผู้บริหารสั่งงาน"]
+        LINE_CUST["💬 LINE OA\nลูกค้าติดต่อแบรนด์"]
+        MOBILE["📲 Mobile Web\nพนักงานภาคสนาม"]
+    end
+    subgraph FRONTEND["ชั้นแสดงผล — Web Dashboard  Next.js 14"]
+        direction LR
+        DASH["📊 Dashboard"]
+        CRM_UI["👥 CRM"]
+        EXP_UI["💰 Expense"]
+        INV_UI["📦 Inventory"]
+        RPT_UI["📄 Reports"]
+    end
+    subgraph BACKEND["ชั้นประมวลผลกลาง — FastAPI + Python"]
+        direction LR
+        AUTH["🔐 Auth & RBAC"]
+        BIZ["📋 Business Logic"]
+        LINE_SVC["📡 LINE Service"]
+        WORKER["⏱️ Background Jobs"]
+        SSE["📶 Real-time SSE"]
+    end
+    subgraph DATA["ชั้นข้อมูล"]
+        MONGO[("🍃 MongoDB\nฐานข้อมูลหลัก")]
+        REDIS[("⚡ Redis Cache")]
+        PDF_VOL["📁 PDF Storage"]
+    end
+    WEB --> FRONTEND
+    MOBILE --> FRONTEND
+    LINE_EXEC <-->|"อนุมัติ / รับสรุปรายวัน"| LINE_SVC
+    LINE_CUST <-->|"ทักแชท / Follow"| LINE_SVC
+    FRONTEND <-->|"REST API / SSE"| BACKEND
+    LINE_SVC --> BIZ
+    BIZ <--> AUTH
+    BIZ <--> WORKER
+    WORKER --> SSE
+    BACKEND <--> MONGO
+    BACKEND <--> REDIS
+    WORKER --> PDF_VOL
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2: MODULES -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">2</div>
+      <div>
+        <h2>โมดูลที่ใช้งานได้แล้ว <small>Completed Modules ✅</small></h2>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>โมดูล</th>
+            <th>ฟีเจอร์หลัก</th>
+            <th>สถานะ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>👥 Customer Hub CRM</strong></td>
+            <td>บริหารลูกค้า · แบ่งกลุ่ม Segments · ดึงลูกค้าจาก LINE อัตโนมัติ · นำเข้าจาก Google Sheets</td>
+            <td><span class="badge badge-green">✅ เสร็จแล้ว</span></td>
+          </tr>
+          <tr>
+            <td><strong>💰 Expense Control</strong></td>
+            <td>บันทึกค่าใช้จ่ายรายวัน · หมวดหมู่ Custom · รายงาน PDF ภาษาไทย · อนุมัติออนไลน์</td>
+            <td><span class="badge badge-green">✅ เสร็จแล้ว</span></td>
+          </tr>
+          <tr>
+            <td><strong>📦 Inventory</strong></td>
+            <td>จัดการคลังสินค้า · ตัดสต๊อกอัตโนมัติ · บันทึกการเคลื่อนไหว</td>
+            <td><span class="badge badge-green">✅ เสร็จแล้ว</span></td>
+          </tr>
+          <tr>
+            <td><strong>🔐 Security & Auth</strong></td>
+            <td>Login / JWT / RBAC · สิทธิ์ผู้ใช้หลายระดับ · OTP ยืนยันตัวตน</td>
+            <td><span class="badge badge-green">✅ เสร็จแล้ว</span></td>
+          </tr>
+          <tr>
+            <td><strong>📡 LINE Integration</strong></td>
+            <td>รับ Webhook อัตโนมัติ · แจ้งเตือน Notification · ดึงโปรไฟล์ลูกค้า</td>
+            <td><span class="badge badge-green">✅ เสร็จแล้ว</span></td>
+          </tr>
+          <tr>
+            <td><strong>⚡ Infrastructure</strong></td>
+            <td>Real-time SSE · Redis Cache · Background Jobs · Docker Deploy</td>
+            <td><span class="badge badge-green">✅ เสร็จแล้ว</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SECTION 3: LINE COMMAND CENTER -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">3</div>
+      <div>
+        <h2>LINE ในฐานะ "Cockpit ผู้บริหาร" <small>LINE Command Center</small></h2>
+      </div>
+    </div>
+    <div class="card">
+      <div class="alert alert-tip">
+        <div class="alert-label">💡 แนวคิดหลัก</div>
+        ผู้บริหารไม่ต้องเปิดคอมพิวเตอร์ — <strong>อนุมัติงาน · รับรายงาน · สั่งการ</strong> ผ่าน LINE ได้ทันที เพราะทุกคนใช้ LINE อยู่แล้ว — ไม่มีช่วงการเรียนรู้ (Zero Learning Curve)
+      </div>
+      <div class="diagram-wrap" style="margin-top:16px;">
+        <div class="mermaid">
+sequenceDiagram
+    actor Exec as ผู้บริหาร (LINE)
+    participant BOT as PlaNeat LINE Bot
+    participant SYS as ระบบหลัก
+
+    Note over Exec,SYS: กรณีที่ 1 - อนุมัติค่าใช้จ่าย
+    SYS->>BOT: มีรายการรออนุมัติ
+    BOT->>Exec: แจ้งเตือน + ปุ่ม อนุมัติ / ปฏิเสธ
+    Exec->>BOT: กด อนุมัติ
+    BOT->>SYS: ส่งคำสั่ง
+    SYS-->>BOT: แจ้งพนักงาน ผ่านแล้ว
+
+    Note over Exec,SYS: กรณีที่ 2 - ขอรายงาน
+    Exec->>BOT: พิมพ์ สรุปวันนี้
+    BOT->>SYS: ดึง KPI
+    SYS-->>BOT: ยอดขาย + ค่าใช้จ่าย + กำไร
+    BOT->>Exec: รายงานสรุป
+
+    Note over Exec,SYS: กรณีที่ 3 - แจ้งเตือนอัตโนมัติ
+    SYS->>BOT: ค่าใช้จ่ายเกิน Limit
+    BOT->>Exec: แจ้งเตือน แผนก X เบิกเกิน 20%
+        </div>
+      </div>
+    </div>
+    <br/>
+    <h3 style="color:#fff;margin-bottom:14px;font-size:16px;">คำสั่ง LINE สำหรับผู้บริหาร</h3>
+    <div class="line-commands">
+      <div class="cmd-card"><span class="cmd-key">สรุปวันนี้</span><span class="cmd-desc">ยอดขาย + ค่าใช้จ่าย + กำไรสุทธิ ประจำวัน</span></div>
+      <div class="cmd-card"><span class="cmd-key">สรุปเดือนนี้</span><span class="cmd-desc">ภาพรวมทางการเงินรายเดือนพร้อมกราฟ</span></div>
+      <div class="cmd-card"><span class="cmd-key">ดีลรออนุมัติ</span><span class="cmd-desc">รายการ Deal / Expense ที่รอผู้บริหารอนุมัติ</span></div>
+      <div class="cmd-card"><span class="cmd-key">สต๊อกวิกฤต</span><span class="cmd-desc">รายการสินค้าที่ใกล้หมดคลัง</span></div>
+      <div class="cmd-card"><span class="cmd-key">ลูกค้าใหม่วันนี้</span><span class="cmd-desc">รายชื่อลูกค้าที่เพิ่งเข้ามาในระบบ</span></div>
+      <div class="cmd-card"><span class="cmd-key">ตัวชี้วัดทีมขาย</span><span class="cmd-desc">Win Rate · Pipeline Value · ยอดแต่ละเซลส์</span></div>
+      <div class="cmd-card"><span class="cmd-key">✅ [รหัส]</span><span class="cmd-desc">อนุมัติรายการที่แจ้งมา</span></div>
+      <div class="cmd-card"><span class="cmd-key">❌ [รหัส]</span><span class="cmd-desc">ปฏิเสธรายการพร้อมเหตุผล</span></div>
+    </div>
+  </div>
+
+  <!-- SECTION 4: ROADMAP -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">4</div>
+      <div>
+        <h2>เส้นทางสู่ ERP เต็มรูปแบบ <small>Transformation Roadmap</small></h2>
+      </div>
+    </div>
+    <div class="card">
+      <div class="timeline">
+        <div class="tl-item">
+          <div class="tl-dot green"></div>
+          <div class="tl-header">เฟส 0 — โครงสร้างพื้นฐาน (เสร็จแล้ว)</div>
+          <div class="tl-sub">Q1 / 2025</div>
+          <div class="tl-tags">
+            <span class="tl-tag green">Security & Auth</span>
+            <span class="tl-tag green">Redis Cache</span>
+            <span class="tl-tag green">Docker Deploy</span>
+            <span class="tl-tag green">SSE Real-time</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot green"></div>
+          <div class="tl-header">เฟส 1 — Customer Hub (เสร็จแล้ว)</div>
+          <div class="tl-sub">Q1–Q2 / 2025</div>
+          <div class="tl-tags">
+            <span class="tl-tag green">CRM ลูกค้า</span>
+            <span class="tl-tag green">LINE Auto-Import</span>
+            <span class="tl-tag green">Google Sheets Sync</span>
+            <span class="tl-tag green">Segments & Tags</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot blue"></div>
+          <div class="tl-header">เฟส 2 — Sales Pipeline (กำลังดำเนินการ)</div>
+          <div class="tl-sub">Q2 / 2026</div>
+          <div class="tl-tags">
+            <span class="tl-tag blue">Kanban Board Deals</span>
+            <span class="tl-tag blue">Activity Log</span>
+            <span class="tl-tag blue">LINE Follow-up Reminder</span>
+            <span class="tl-tag blue">Sales Dashboard</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot amber"></div>
+          <div class="tl-header">เฟส 3 — Marketing & Omnichannel</div>
+          <div class="tl-sub">Q3 / 2026</div>
+          <div class="tl-tags">
+            <span class="tl-tag amber">LINE Broadcast</span>
+            <span class="tl-tag amber">Email Campaign (PDPA)</span>
+            <span class="tl-tag amber">Facebook / Instagram</span>
+            <span class="tl-tag amber">Campaign Analytics</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot amber"></div>
+          <div class="tl-header">เฟส 4 — Analytics & AI</div>
+          <div class="tl-sub">Q4 / 2026</div>
+          <div class="tl-tags">
+            <span class="tl-tag amber">AI Bot LINE อัจฉริยะ</span>
+            <span class="tl-tag amber">KPI Dashboard Real-time</span>
+            <span class="tl-tag amber">Revenue Analytics</span>
+            <span class="tl-tag amber">ROI Analysis</span>
+          </div>
+        </div>
+        <div class="tl-item">
+          <div class="tl-dot pink"></div>
+          <div class="tl-header">เฟส 5 — ERP เต็มรูปแบบ</div>
+          <div class="tl-sub">Q1 / 2027</div>
+          <div class="tl-tags">
+            <span class="tl-tag pink">Quotation ใบเสนอราคา</span>
+            <span class="tl-tag pink">Billing & Invoice</span>
+            <span class="tl-tag pink">HR & Leave Management</span>
+            <span class="tl-tag pink">Payroll คำนวณเงินเดือน</span>
+            <span class="tl-tag pink">LINE Command Center ครบ</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 5: IMPACT TABLE -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">5</div>
+      <div>
+        <h2>ผลลัพธ์ที่ผู้บริหารได้รับในแต่ละเฟส <small>Business Impact per Phase</small></h2>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>เฟส</th>
+            <th>ช่วงเวลา</th>
+            <th>สิ่งที่ได้</th>
+            <th>ประโยชน์ธุรกิจ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-green">✅ ปัจจุบัน</span></td>
+            <td>เสร็จแล้ว</td>
+            <td>CRM + Expense + Inventory + LINE Notify</td>
+            <td>รู้จักลูกค้า · คุมงบประมาณได้</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-blue">🔄 เฟส 2</span></td>
+            <td>Q2 / 2026</td>
+            <td>Sales Pipeline + LINE Follow-up Reminder</td>
+            <td>ปิดดีลเร็วขึ้น · ไม่พลาด Lead</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-amber">📋 เฟส 3</span></td>
+            <td>Q3 / 2026</td>
+            <td>LINE Broadcast + Email + Facebook/IG</td>
+            <td>ส่งโปรโมชั่นถึงลูกค้าเป้าหมายได้ทันที</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-amber">📋 เฟส 4</span></td>
+            <td>Q4 / 2026</td>
+            <td>AI Bot + KPI Dashboard Real-time</td>
+            <td>ผู้บริหารถามไลน์ได้เลย ไม่ต้องรอรายงาน</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-pink">🚀 เฟส 5</span></td>
+            <td>Q1 / 2027</td>
+            <td>Quotation + Billing + HR + Payroll</td>
+            <td><strong style="color:#f472b6">ERP ครบวงจร · ลดงาน Manual 80%</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SECTION 6: 3-PHASE SUMMARY -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">6</div>
+      <div>
+        <h2>สรุปภาพรวม 3 ระยะ <small>One-Page Summary</small></h2>
+      </div>
+    </div>
+    <div class="phases">
+      <div class="phase-card now">
+        <div class="ph-label" style="color:var(--green)">📍 วันนี้</div>
+        <div class="ph-title">รากฐานแข็งแกร่ง</div>
+        <ul>
+          <li>CRM บริหารลูกค้า</li>
+          <li>ควบคุม Expense</li>
+          <li>จัดการคลังสินค้า</li>
+          <li>LINE แจ้งเตือน</li>
+          <li>รายงาน PDF</li>
+        </ul>
+      </div>
+      <div class="phase-card mid">
+        <div class="ph-label" style="color:var(--blue)">📅 6 เดือน</div>
+        <div class="ph-title">ขับเคลื่อนยอดขาย</div>
+        <ul>
+          <li>Sales Pipeline</li>
+          <li>LINE อนุมัติงาน</li>
+          <li>Broadcast Campaign</li>
+          <li>AI Dashboard</li>
+          <li>KPI Real-time</li>
+        </ul>
+      </div>
+      <div class="phase-card full">
+        <div class="ph-label" style="color:var(--pink)">🚀 12 เดือน</div>
+        <div class="ph-title">ERP ครบวงจร</div>
+        <ul>
+          <li>ออกใบเสนอราคา</li>
+          <li>ระบบบิลลิ่ง</li>
+          <li>HR & Leave</li>
+          <li>คำนวณเงินเดือน</li>
+          <li>LINE Bot AI</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="alert alert-important" style="margin-top:24px;">
+      <div class="alert-label">⚡ ข้อได้เปรียบเชิงกลยุทธ์</div>
+      PlaNeat ถูกสร้างให้ <strong>ต่อยอดได้ทีละส่วน</strong> โดยโครงสร้างที่วางไว้รองรับการเติบโตสู่ ERP เต็มรูปแบบโดยไม่ต้องเริ่มต้นใหม่ — ประหยัดต้นทุนการพัฒนาในระยะยาวได้อย่างมีนัยสำคัญ
+    </div>
+    <div class="alert alert-tip">
+      <div class="alert-label">💚 LINE = Cockpit ผู้บริหาร</div>
+      เพราะทีมงานใช้ LINE เป็นหลักอยู่แล้ว การฝัง Command Center เข้าใน LINE OA จึงไม่มีช่วงการเรียนรู้ — ผู้บริหารอนุมัติงานได้ทันทีโดยไม่ต้องเปิดหน้าต่างใหม่
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  PlaNeat Executive Architecture Blueprint · Version 2.0 · เมษายน 2026<br/>
+  จัดทำโดยทีมพัฒนา PlaNeat
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    themeVariables: {
+      primaryColor: '#dbeafe',
+      primaryTextColor: '#1e3a5f',
+      primaryBorderColor: '#2563eb',
+      lineColor: '#64748b',
+      secondaryColor: '#dcfce7',
+      tertiaryColor: '#fef3c7',
+      fontSize: '14px',
+    }
+  });
+</script>
+</body>
+</html>

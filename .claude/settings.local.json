@@ -20,7 +20,31 @@
       "Bash(scp -i 'C:/Users/hot it/.ssh/planeat-vps' -o StrictHostKeyChecking=no backend/app/routers/line_webhook.py backend/app/routers/settings.py root@76.13.211.161:/root/planeat-dev/backend/app/routers/)",
       "Bash(docker-compose exec:*)",
       "Bash(docker-compose -f \"C:\\\\Users\\\\hot it\\\\Downloads\\\\planeat-app\\\\docker-compose.dev.yml\" ps)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(t['name'], '->', t['public_url']\\) for t in d['tunnels']]\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(t['name'], '->', t['public_url']\\) for t in d['tunnels']]\")",
+      "Bash(ssh root@planeatsupport.duckdns.org)",
+      "Bash(ssh root@planeatsupport.duckdns.org \"cd /opt/planeat-app && git pull && docker compose down && docker rmi planeat-app-frontend planeat-app-backend -f && docker compose up -d --build\")",
+      "Bash(ssh -o StrictHostKeyChecking=no root@planeatsupport.duckdns.org \"cd /opt/planeat-app && git pull && docker compose down && docker rmi planeat-app-frontend planeat-app-backend -f && docker compose up -d --build\")",
+      "Read(//c/Users/hot it/.ssh\" 2>/dev/**)",
+      "Bash(scp -i /c/Users/\"hot it\"/.ssh/planeat-vps \"C:/Users/hot it/Downloads/planeat-app/frontend/app/auth/line/callback/page.tsx\" root@76.13.211.161:~/planeat-dev/frontend/app/auth/line/callback/page.tsx)",
+      "Bash(ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"df -h / && echo '---' && du -sh /var/lib/docker && du -sh /root/planeat-app 2>/dev/null && du -sh /var/log && docker system df 2>/dev/null\")",
+      "Bash(sshpass -p 'h@9W9GWv.t/a7\\(MW,X;9' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"du -sh /var/lib/docker; echo '---'; docker system df; echo '---'; du -sh /root/planeat-app; echo '---'; du -sh /var/log\")",
+      "Bash(choco install:*)",
+      "Bash(sshpass -p 'h@9W9GWv.t/a7\\(MW,X;9' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"df -h / && echo '==DOCKER==' && docker system df && echo '==LOG==' && du -sh /var/log && echo '==APP==' && du -sh /root/planeat-app && echo '==TOP10==' && du -sh /* 2>/dev/null | sort -rh | head -10\")",
+      "Bash(where sshpass:*)",
+      "Read(//c/Users/hot it/AppData/Local/Microsoft/WinGet/Packages\" 2>/dev/**)",
+      "Bash(\"/c/Users/hot it/AppData/Local/Microsoft/WinGet/Packages/xhcoding.sshpass-win32_Microsoft.Winget.Source_8wekyb3d8bbwe/sshpass.exe\" -p 'h@9W9GWv.t/a7\\(MW,X;9' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"df -h / && echo '==DOCKER==' && docker system df && echo '==LOG==' && du -sh /var/log && echo '==TOP10==' && du -sh /* 2>/dev/null | sort -rh | head -10\")",
+      "Read(//c/Users/HOTIT~1/AppData/Local/Temp/claude/c--Users-hot-it-Downloads-planeat-app/8877ffd5-8486-43ed-9824-e02080e41f3d/tasks/**)",
+      "Bash(rsync -avz --delete -e 'ssh -i '\\\\''/c/Users/hot it/.ssh/planeat-vps'\\\\'' -o StrictHostKeyChecking=no' --exclude=__pycache__ '--exclude=*.pyc' --exclude=.env '/c/Users/hot it/Downloads/planeat-app/backend/' root@76.13.211.161:/root/planeat-dev/backend/)",
+      "Bash(tar -czf /tmp/backend_sync.tar.gz --exclude=backend/__pycache__ '--exclude=backend/**/__pycache__' '--exclude=backend/**/*.pyc' backend/)",
+      "Bash(scp -i '/c/Users/hot it/.ssh/planeat-vps' -o StrictHostKeyChecking=no /tmp/backend_sync.tar.gz root@76.13.211.161:/tmp/backend_sync.tar.gz)",
+      "Bash(scp -i '/c/Users/hot it/.ssh/planeat-vps' -o StrictHostKeyChecking=no '/c/Users/hot it/Downloads/planeat-app/frontend/app/auth/line/callback/page.tsx' root@76.13.211.161:/root/planeat-dev/frontend/app/auth/line/callback/page.tsx)",
+      "Bash(tar -czf /tmp/backend_sync2.tar.gz --exclude=backend/__pycache__ '--exclude=backend/**/__pycache__' '--exclude=backend/**/*.pyc' backend/)",
+      "Bash(scp -i '/c/Users/hot it/.ssh/planeat-vps' -o StrictHostKeyChecking=no /tmp/backend_sync2.tar.gz root@76.13.211.161:/tmp/backend_sync2.tar.gz)",
+      "Bash(tar -czf /tmp/backend_sync3.tar.gz --exclude=backend/__pycache__ '--exclude=backend/**/__pycache__' '--exclude=backend/**/*.pyc' backend/)",
+      "Bash(scp -i '/c/Users/hot it/.ssh/planeat-vps' -o StrictHostKeyChecking=no /tmp/backend_sync3.tar.gz root@76.13.211.161:/tmp/backend_sync3.tar.gz)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\hot it\\.ssh"
     ]
   }
 }

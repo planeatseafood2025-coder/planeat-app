@@ -87,7 +87,11 @@ function LineCallbackContent() {
       if (res.ok && data.success) {
         setStep('pending')
       } else {
-        setFormError(data.detail || data.message || 'เกิดข้อผิดพลาด')
+        const errDetail = data.detail
+        const errMsg = Array.isArray(errDetail)
+          ? (errDetail[0]?.msg || 'ข้อมูลไม่ถูกต้อง')
+          : (errDetail || data.message || 'เกิดข้อผิดพลาด')
+        setFormError(String(errMsg))
       }
     } catch {
       setFormError('เกิดข้อผิดพลาดในการเชื่อมต่อ')
@@ -165,14 +169,14 @@ function LineCallbackContent() {
                   <div>
                     <label className="text-xs font-medium text-gray-600 block mb-1">ชื่อ *</label>
                     <input value={firstName} onChange={e => setFirstName(e.target.value)}
-                      autoComplete="off" name="given-name-new"
+                      autoComplete="new-password" name="given-name-new"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                       placeholder="ชื่อจริง" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600 block mb-1">นามสกุล</label>
                     <input value={lastName} onChange={e => setLastName(e.target.value)}
-                      autoComplete="off" name="family-name-new"
+                      autoComplete="new-password" name="family-name-new"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                       placeholder="นามสกุล" />
                   </div>
