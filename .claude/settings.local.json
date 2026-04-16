@@ -77,7 +77,16 @@
       "Bash(scp -o StrictHostKeyChecking=no -i 'C:/Users/hot it/.ssh/planeat-vps' backend/app/services/category_service.py 'root@76.13.211.161:~/planeat-dev/backend/app/services/')",
       "Bash(scp -o StrictHostKeyChecking=no -i 'C:/Users/hot it/.ssh/planeat-vps' backend/app/routers/auth.py 'root@76.13.211.161:~/planeat-dev/backend/app/routers/')",
       "Bash(scp -o StrictHostKeyChecking=no -i 'C:/Users/hot it/.ssh/planeat-vps' frontend/app/page.tsx 'root@76.13.211.161:~/planeat-dev/frontend/app/')",
-      "Bash(scp -i \"C:/Users/hot it/.ssh/planeat-vps\" \"C:/Users/hot it/Downloads/planeat-app/frontend/app/standalone/page.tsx\" root@76.13.211.161:~/planeat-dev/frontend/app/standalone/page.tsx)"
+      "Bash(scp -i \"C:/Users/hot it/.ssh/planeat-vps\" \"C:/Users/hot it/Downloads/planeat-app/frontend/app/standalone/page.tsx\" root@76.13.211.161:~/planeat-dev/frontend/app/standalone/page.tsx)",
+      "Bash(ssh root@76.13.211.161 \"cd /root/planeat-app && git fetch origin main && git reset --hard origin/main && docker-compose down && docker rmi planeat-app-frontend planeat-app-backend -f; docker-compose up -d --build\")",
+      "Bash(sshpass -p '#6zE08sc&I1oBfsz1fPI' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected\")",
+      "Bash(sshpass -p 'sOhq2D;EemaEU4PlEy#8' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@76.13.211.161 \"echo connected\")",
+      "Bash(ping planeatdev.duckdns.org -n 2)",
+      "Bash(nginx -v)",
+      "Bash(certbot --version)",
+      "Bash(ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected && whoami && ls /root/planeat-app 2>/dev/null || echo 'no planeat-app'\")",
+      "Bash(sshpass -p 'XS&D\\)U,xuy7SzifR.O1v' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected && whoami\")",
+      "Bash(sshpass -p 'n0C7,2PnB?UYVMw?5NG;' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected && whoami && ls /root/\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\hot it\\.ssh"
