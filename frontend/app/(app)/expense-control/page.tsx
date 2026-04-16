@@ -416,7 +416,7 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-slate-700 truncate">{e.detail || cat?.label || e.category}</p>
-                        <p className="text-xs text-slate-400">{e.date} · {e.recorder}</p>
+                        <p className="text-xs text-slate-400">{e.date} · {e.recorderName || e.recorder}</p>
                       </div>
                       <p className="text-xs font-bold text-slate-800 whitespace-nowrap">{fmt(e.amount)}</p>
                     </div>
@@ -480,7 +480,7 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
                             </td>
                             <td className="px-4 py-3 text-sm text-slate-700 max-w-xs truncate">{e.detail || '—'}</td>
                             <td className="px-4 py-3 text-sm font-bold text-slate-800 text-right whitespace-nowrap">{fmt(e.amount)}</td>
-                            <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{e.recorder || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{e.recorderName || e.recorder || '—'}</td>
                           </tr>
                         )
                       })}
@@ -523,21 +523,29 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
 }
 
 // ─── Daily Tab (Dynamic) ─────────────────────────────────────────────────────
+type BudgetEntry = { spentToday: number; spentMonth: number; monthlyBudget: number; dailyRate: number }
+
 function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSession>; flash: (t: 'ok'|'err', m: string) => void; catVersion: number }) {
   const [date, setDate] = useState(todayIso())
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [panels, setPanels] = useState<Record<string, { open: boolean; items: Record<string, string>[] }>>({})
   const [submitting, setSubmitting] = useState<string | null>(null)
   const [loadingCats, setLoadingCats] = useState(true)
+  const [budgetMap, setBudgetMap] = useState<Record<string, BudgetEntry>>({})
 
   useEffect(() => {
     setLoadingCats(true)
-    categoryApi.getMine().then((res) => {
-      const r = res as CategoriesResponse
+    Promise.all([
+      categoryApi.getMine(),
+      budgetApi.getBudget(monthInputToApi(todayMonth())),
+    ]).then(([catRes, budgetRes]) => {
+      const r = catRes as CategoriesResponse
       setCategories(r.categories || [])
       const init: Record<string, { open: boolean; items: Record<string, string>[] }> = {}
       ;(r.categories || []).forEach(cat => { init[cat.id] = { open: false, items: [] } })
       setPanels(init)
+      const bd = (budgetRes as BudgetResponse)?.data as unknown as Record<string, BudgetEntry> | undefined
+      if (bd) setBudgetMap(bd)
     }).catch(() => {}).finally(() => setLoadingCats(false))
   }, [catVersion])
 
@@ -686,6 +694,12 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
       ) : (
         categories.map(cat => {
           const panel = panels[cat.id] || { open: false, items: [] }
+          const budgetEntry = budgetMap[cat.id]
+          const draftTotal = panel.items.reduce((sum, item) => sum + calcPreview(cat, item), 0)
+          const previewSpentMonth = (budgetEntry?.spentMonth || 0) + draftTotal
+          const previewRemain = (budgetEntry?.monthlyBudget || 0) - previewSpentMonth
+          const budgetPct = budgetEntry?.monthlyBudget > 0 ? previewSpentMonth / budgetEntry.monthlyBudget * 100 : 0
+          const remainColor = previewRemain < 0 ? '#dc2626' : budgetPct >= 80 ? '#d97706' : '#16a34a'
           return (
             <div key={cat.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-4 overflow-hidden">
               <button className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors" onClick={() => togglePanel(cat.id, cat)}>
@@ -698,8 +712,41 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
                     <p className="text-xs text-slate-400">{panel.items.length > 0 && panel.open ? `${panel.items.length} รายการ` : 'คลิกเพื่อเพิ่มรายการ'}</p>
                   </div>
                 </div>
-                <span className="material-icons-round text-slate-400" style={{ fontSize: 20 }}>{panel.open ? 'expand_less' : 'expand_more'}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {budgetEntry?.monthlyBudget > 0 && (
+                    <span style={{ fontSize: 11, color: remainColor, fontWeight: 700 }}>
+                      งบคงเหลือ/เดือน {fmt(previewRemain)}
+                    </span>
+                  )}
+                  <span className="material-icons-round text-slate-400" style={{ fontSize: 20 }}>{panel.open ? 'expand_less' : 'expand_more'}</span>
+                </div>
               </button>
+
+              {/* Budget summary chips — แสดงเมื่อ panel เปิด */}
+              {panel.open && budgetEntry && (
+                <div style={{ display: 'flex', gap: 8, padding: '0 16px 12px', flexWrap: 'wrap' }}>
+                  <div style={{ background: '#f0f9ff', borderRadius: 8, padding: '6px 12px', fontSize: 12 }}>
+                    <span style={{ color: '#64748b' }}>ใช้วันนี้ </span>
+                    <span style={{ fontWeight: 700, color: '#0369a1' }}>{fmt(budgetEntry.spentToday)}</span>
+                  </div>
+                  <div style={{ background: draftTotal > 0 ? '#fef3c7' : '#f8fafc', borderRadius: 8, padding: '6px 12px', fontSize: 12, transition: 'background 0.2s' }}>
+                    <span style={{ color: '#64748b' }}>ใช้เดือนนี้ </span>
+                    <span style={{ fontWeight: 700, color: '#1e293b' }}>{fmt(previewSpentMonth)}</span>
+                    {draftTotal > 0 && (
+                      <span style={{ color: '#d97706', fontSize: 10 }}> (รวมร่าง +{fmt(draftTotal)})</span>
+                    )}
+                  </div>
+                  <div style={{ background: previewRemain < 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 8, padding: '6px 12px', fontSize: 12, transition: 'background 0.2s' }}>
+                    <span style={{ color: '#64748b' }}>คงเหลือ/เดือน </span>
+                    <span style={{ fontWeight: 700, color: remainColor }}>{fmt(previewRemain)}</span>
+                  </div>
+                  {/* DEBUG: remove after fix */}
+                  <div style={{ fontSize: 10, color: '#94a3b8', alignSelf: 'center' }}>
+                    draft={fmt(draftTotal)} items={panel.items.length}
+                  </div>
+                </div>
+              )}
+
               <div className={`form-panel ${panel.open ? 'open' : ''}`}>
                 <div className="px-4 pb-4">
                   {panel.items.map((item, idx) => (
@@ -1105,11 +1152,17 @@ function BudgetTab({ user, flash }: { user: ReturnType<typeof getSession>; flash
                       <div>
                         <label className="form-label">งบรายเดือน (฿)</label>
                         <input type="number" className="form-input" min="0" placeholder="0"
-                          value={b.monthly} onChange={e => setBudgets(prev => ({ ...prev, [cat.id]: { ...prev[cat.id], monthly: e.target.value } }))} />
+                          value={b.monthly} onChange={e => {
+                            const monthly = parseFloat(e.target.value) || 0
+                            const [yr, mo] = modalMonth.split('-').map(Number)
+                            const daysInMonth = new Date(yr, mo, 0).getDate()
+                            const autoDaily = monthly > 0 ? String(Math.round(monthly / daysInMonth * 100) / 100) : ''
+                            setBudgets(prev => ({ ...prev, [cat.id]: { monthly: e.target.value, daily: autoDaily } }))
+                          }} />
                       </div>
                       <div>
-                        <label className="form-label">งบรายวัน (฿)</label>
-                        <input type="number" className="form-input" min="0" placeholder="0"
+                        <label className="form-label">งบรายวัน (฿) <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 11 }}>คำนวณอัตโนมัติ</span></label>
+                        <input type="number" className="form-input" min="0" placeholder="คำนวณอัตโนมัติ"
                           value={b.daily} onChange={e => setBudgets(prev => ({ ...prev, [cat.id]: { ...prev[cat.id], daily: e.target.value } }))} />
                       </div>
                     </div>

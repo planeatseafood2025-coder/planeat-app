@@ -51,11 +51,14 @@ async def _get_send_configs() -> list:
 
 
 async def _get_users_by_role(roles: list) -> list:
-    """ดึง users ตาม role ที่มี lineNotifyToken"""
+    """ดึง users ตาม role ที่มี lineUid หรือ lineNotifyToken"""
     db = get_db()
     cursor = db.users.find(
-        {"role": {"$in": roles}, "lineNotifyToken": {"$exists": True, "$ne": ""}, "status": "active"},
-        {"lineNotifyToken": 1, "username": 1, "name": 1, "firstName": 1, "_id": 0}
+        {"role": {"$in": roles}, "status": "active", "$or": [
+            {"lineUid": {"$exists": True, "$ne": ""}},
+            {"lineNotifyToken": {"$exists": True, "$ne": ""}},
+        ]},
+        {"lineUid": 1, "lineNotifyToken": 1, "username": 1, "name": 1, "firstName": 1, "_id": 0}
     )
     return await cursor.to_list(None)
 
@@ -404,6 +407,25 @@ async def notify_expense_approved(expense: dict, approver_username: str = "") ->
     remain_color    = "#16a34a" if remaining >= 0 else "#dc2626"
     remain_label    = f"฿{_fmt(remaining)}" if remaining >= 0 else f"-฿{_fmt(abs(remaining))}"
 
+    # ─── Budget warning: แจ้งครั้งแรกที่ข้ามเส้น 80% และ 100% ──────────────
+    if monthly_budget > 0:
+        pct_used = month_total / monthly_budget * 100
+        threshold = 100 if pct_used >= 100 else (80 if pct_used >= 80 else None)
+        if threshold is not None:
+            month_str = now.strftime("%m/%Y")
+            existing_flag = await db.budget_warning_flags.find_one({
+                "monthYear": month_str, "catKey": cat_key, "threshold": threshold
+            })
+            if not existing_flag:
+                try:
+                    await db.budget_warning_flags.insert_one({
+                        "monthYear": month_str, "catKey": cat_key,
+                        "threshold": threshold, "sentAt": now.isoformat()
+                    })
+                    await notify_budget_warning(cat, pct_used, month_total, monthly_budget, cat_key)
+                except Exception as _bwe:
+                    print(f"[LINE] notify_budget_warning failed: {_bwe}")
+
     # ─── 1. ส่งไปกลุ่ม LINE OA ──────────────────────────────────────────────
     token, gid = await _get_expense_group()
     if token and gid:
@@ -636,7 +658,10 @@ async def notify_budget_warning(cat_name: str, pct: float, spent: float, budget:
     managers = await _get_users_by_role(["accounting_manager", "admin", "super_admin"])
     notified = set()
     for u in managers:
-        if u.get("lineNotifyToken"):
+        if u.get("lineUid"):
+            await _push_to_uid(u["lineUid"], [{"type": "text", "text": text.strip()}])
+            notified.add(u["username"])
+        elif u.get("lineNotifyToken"):
             await _notify_personal(u["lineNotifyToken"], text)
             notified.add(u["username"])
 
@@ -751,8 +776,8 @@ async def notify_monthly_summary(year: int, month: int) -> None:
     # 2. แจ้ง accounting_manager ว่าส่งสรุปไปกลุ่มแล้ว
     managers = await _get_users_by_role(["accounting_manager", "admin", "super_admin"])
     for u in managers:
-        notify_token = u.get("lineNotifyToken", "")
         line_uid     = u.get("lineUid", "")
+        notify_token = u.get("lineNotifyToken", "")
         msg = (
             f"📊 ระบบส่งสรุปค่าใช้จ่ายเดือน {month_label} ไปกลุ่มแล้ว\n"
             f"รวมยอด: ฿{_fmt(grand_spent)} / งบ: ฿{_fmt(grand_budget)}\n"

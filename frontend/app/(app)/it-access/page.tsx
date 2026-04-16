@@ -68,7 +68,7 @@ export default function ITAccessPage() {
   // Edit User state
   const [editUser, setEditUser] = useState<UserRecord | null>(null)
   const [editNickname, setEditNickname] = useState('')
-  const [editRole, setEditRole] = useState<Role>('general_user')
+  const [editRoles, setEditRoles] = useState<Role[]>(['general_user'])
   const [editStatus, setEditStatus] = useState<UserStatus>('active')
   const [editPassword, setEditPassword] = useState('')
   const [saving, setSaving] = useState(false)
@@ -138,16 +138,22 @@ export default function ITAccessPage() {
   function openEdit(u: UserRecord) {
     setEditUser(u)
     setEditNickname(u.nickname || '')
-    setEditRole(u.role)
+    setEditRoles(u.roles?.length ? u.roles : [u.role])
     setEditStatus(u.status)
     setEditPassword('')
+  }
+
+  function toggleRole(r: Role) {
+    setEditRoles(prev =>
+      prev.includes(r) ? (prev.length > 1 ? prev.filter(x => x !== r) : prev) : [...prev, r]
+    )
   }
 
   async function handleSave() {
     if (!editUser) return
     setSaving(true)
     try {
-      const payload: any = { role: editRole, status: editStatus, nickname: editNickname }
+      const payload: any = { role: editRoles[0], roles: editRoles, status: editStatus, nickname: editNickname }
       if (editPassword) payload.password = editPassword
       await usersApi.updateUser(editUser.username, payload)
       setEditUser(null); loadUsers()
@@ -276,7 +282,7 @@ export default function ITAccessPage() {
               <input
                 type="text"
                 className="form-input flex-1"
-                placeholder="ค้นหาชื่อ, username, เบอร์โทร..."
+                placeholder="ค้นหา Username / ชื่อ-นามสกุล / ชื่อเล่น / เบอร์โทร..."
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -329,9 +335,17 @@ export default function ITAccessPage() {
                         <td style={{ padding: '10px 12px', color: '#64748b' }}>{u.phone || '-'}</td>
                         <td style={{ padding: '10px 12px', color: '#64748b' }}>{u.jobTitle || '-'}</td>
                         <td style={{ padding: '10px 12px' }}>
-                          <span style={{ ...rc, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            {ROLE_LABELS[u.role] ?? u.role}
-                          </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span style={{ ...rc, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              {ROLE_LABELS[u.role] ?? u.role}
+                            </span>
+                            {(u.roles?.length ?? 0) > 1 && (
+                              <span title={u.roles!.slice(1).map(r => ROLE_LABELS[r] ?? r).join(', ')}
+                                style={{ padding: '2px 6px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: '#e2e8f0', color: '#475569', cursor: 'default' }}>
+                                +{u.roles!.length - 1}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td style={{ padding: '10px 12px' }}>
                           <span style={{ ...sc, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>
@@ -785,10 +799,31 @@ export default function ITAccessPage() {
             </div>
 
             <div className="mb-4">
-              <label className="form-label">Role</label>
-              <select className="form-input" value={editRole} onChange={e => setEditRole(e.target.value as Role)}>
-                {ALL_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>)}
-              </select>
+              <label className="form-label">Role <span className="text-slate-400 font-normal text-[11px]">(เลือกได้หลาย role)</span></label>
+              <div className="grid grid-cols-2 gap-1.5 mt-1">
+                {ALL_ROLES.map(r => {
+                  const active = editRoles.includes(r)
+                  const rc = ROLE_COLORS[r] ?? { bg: '#f1f5f9', color: '#64748b' }
+                  return (
+                    <button
+                      key={r} type="button"
+                      onClick={() => toggleRole(r)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '6px 10px', borderRadius: 8, border: `1.5px solid ${active ? rc.color : '#e2e8f0'}`,
+                        background: active ? rc.bg : '#f8fafc', cursor: 'pointer',
+                        fontSize: 12, fontWeight: active ? 600 : 400, color: active ? rc.color : '#64748b',
+                        textAlign: 'left', transition: 'all 0.12s',
+                      }}
+                    >
+                      <span className="material-icons-round" style={{ fontSize: 14, color: active ? rc.color : '#cbd5e1' }}>
+                        {active ? 'check_box' : 'check_box_outline_blank'}
+                      </span>
+                      {ROLE_LABELS[r] ?? r}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             <div className="mb-4">

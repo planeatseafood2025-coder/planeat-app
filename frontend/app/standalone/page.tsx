@@ -1,10 +1,13 @@
 'use client'
 import Link from 'next/link'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { categoryApi, dynamicDraftApi, budgetApi } from '@/lib/api'
 import { fmt, todayIso, isoToThai, monthInputToApi, todayMonth } from '@/lib/utils'
 import type { BudgetResponse, ExpenseCategory } from '@/types'
 import Swal from 'sweetalert2'
+
+const API = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001').replace(/\/$/, '')
 
 // ─── Shared Logic for Dynamic Items ───────────────────────────────────────────
 function calcTotalDynamic(cat: ExpenseCategory, row: Record<string, string>): number {
@@ -74,48 +77,82 @@ function DynamicItemCard({ cat, item, idx, total, canDelete, onChange, onDelete 
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function StandalonePage() {
-  const [name, setName] = useState('')
+  return <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{background:'linear-gradient(135deg,#0f172a,#1e3a8a,#0ea5e9)'}}><span className="material-icons-round spin text-white" style={{fontSize:32}}>refresh</span></div>}><StandaloneInner /></Suspense>
+}
+
+function StandaloneInner() {
+  const params = useSearchParams()
+  const stoken   = params.get('stoken')
+  const status   = params.get('status')
+  const register = params.get('register')
+  const tid      = params.get('tid')
+  const lineName = params.get('name') || ''
+  const linePic  = params.get('pic') || ''
+
+  const [authState, setAuthState] = useState<'loading'|'login'|'form'|'pending'|'suspended'|'register'|'error'>('loading')
+  const [userName, setUserName] = useState('')
+  const [userFirstName, setUserFirstName] = useState('')
+
+  // register form
+  const [regFirstName, setRegFirstName] = useState('')
+  const [regLastName, setRegLastName]   = useState('')
+  const [regUsername, setRegUsername]   = useState('')
+  const [regPhone, setRegPhone]         = useState('')
+  const [regSaving, setRegSaving]       = useState(false)
+  const [regError, setRegError]         = useState('')
+
   const [date, setDate] = useState(todayIso())
-  
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
-  const [loadingCats, setLoadingCats] = useState(false)
   const [openPanel, setOpenPanel] = useState<string | null>(null)
-  
-  // State panel: catId -> array of item records
   const [panels, setPanels] = useState<Record<string, Record<string, string>[]>>({})
-  
   const [budget, setBudget] = useState<BudgetResponse | null>(null)
   const [submitting, setSubmitting] = useState<string | null>(null)
 
-  // Fetch budgets on mount
+  // ─── ตรวจ URL params เมื่อ load ───
   useEffect(() => {
+    if (status === 'pending')   { setAuthState('pending');   return }
+    if (status === 'suspended') { setAuthState('suspended'); return }
+    if (register === 'true') {
+      // ตั้งชื่อเริ่มต้นจาก LINE displayName
+      const parts = lineName.split(' ')
+      setRegFirstName(parts[0] || '')
+      setRegLastName(parts.slice(1).join(' ') || '')
+      setAuthState('register')
+      return
+    }
+    if (status === 'error' || params.get('error')) { setAuthState('error'); return }
+
+    if (stoken) {
+      // มี stoken → verify กับ backend
+      fetch(`${API}/api/auth/line/standalone-verify?stoken=${stoken}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            setUserName(data.name || data.username)
+            setUserFirstName(data.firstName || data.name || data.username)
+            const cats: ExpenseCategory[] = data.categories || []
+            setCategories(cats)
+            const init: Record<string, Record<string, string>[]> = {}
+            cats.forEach((c: ExpenseCategory) => { init[c.id] = [] })
+            setPanels(init)
+            setAuthState('form')
+          } else {
+            setAuthState('login')
+          }
+        })
+        .catch(() => setAuthState('login'))
+    } else {
+      setAuthState('login')
+    }
+  }, [])
+
+  // โหลด budget เมื่อมี categories
+  useEffect(() => {
+    if (authState !== 'form') return
     budgetApi.getBudget(monthInputToApi(todayMonth())).then((res) => {
       setBudget(res as BudgetResponse)
     }).catch(() => {})
-  }, [])
-
-  // Auto-search categories when name changes (debounce 800ms)
-  useEffect(() => {
-    const trimmed = name.trim()
-    if (trimmed.length < 2) {
-      setCategories([])
-      setPanels({})
-      return
-    }
-
-    const timer = setTimeout(() => {
-      setLoadingCats(true)
-      categoryApi.getPublic(trimmed).then(res => {
-        const r = res as { categories: ExpenseCategory[] }
-        setCategories(r.categories || [])
-        const init: Record<string, Record<string, string>[]> = {}
-        ;(r.categories || []).forEach(cat => { init[cat.id] = [] })
-        setPanels(init)
-      }).catch(() => {}).finally(() => setLoadingCats(false))
-    }, 800)
-
-    return () => clearTimeout(timer)
-  }, [name])
+  }, [authState])
 
   function createEmptyItem(cat: ExpenseCategory): Record<string, string> {
     const item: Record<string, string> = {}
@@ -163,7 +200,7 @@ export default function StandalonePage() {
   }
 
   async function submitCat(cat: ExpenseCategory) {
-    if (!name.trim()) { alert('กรุณาระบุชื่อผู้บันทึก'); return }
+    if (!userName.trim()) { alert('กรุณาระบุชื่อผู้บันทึก'); return }
     if (!date) { alert('กรุณาเลือกวันที่'); return }
     
     // validate required fields
@@ -182,7 +219,7 @@ export default function StandalonePage() {
     setSubmitting(cat.id)
     try {
       const res = await dynamicDraftApi.submitPublic({
-        username: name.trim(),
+        username: userFirstName || userName,
         catId: cat.id,
         date: isoToThai(date),
         rows: items
@@ -202,8 +239,153 @@ export default function StandalonePage() {
     }
   }
 
+  const bg = { background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%)' }
+
+  // ─── Loading ───
+  if (authState === 'loading') return (
+    <div className="min-h-screen flex items-center justify-center" style={bg}>
+      <span className="material-icons-round spin text-white" style={{ fontSize: 36 }}>refresh</span>
+    </div>
+  )
+
+  // ─── Login (ยังไม่ได้ผ่าน LINE) ───
+  if (authState === 'login') return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={bg}>
+      <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl text-center">
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ background: '#f0fdf4' }}>
+          <span className="material-icons-round" style={{ fontSize: 28, color: '#06c755' }}>chat</span>
+        </div>
+        <h2 className="text-lg font-bold text-slate-800 mb-1">เข้าสู่ระบบด้วย LINE</h2>
+        <p className="text-sm text-slate-500 mb-6">เพื่อตรวจสิทธิ์และบันทึกข้อมูลประจำวัน</p>
+        <a href={`${API}/api/auth/line/standalone-start`} className="block">
+          <button style={{ width: '100%', padding: '12px', borderRadius: 12, background: '#06c755', color: 'white', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span className="material-icons-round" style={{ fontSize: 20 }}>login</span>
+            เข้าสู่ระบบด้วย LINE
+          </button>
+        </a>
+        <Link href="/" className="block mt-4 text-sm text-slate-400 hover:text-slate-600">← กลับหน้าหลัก</Link>
+      </div>
+    </div>
+  )
+
+  // ─── Pending ───
+  if (authState === 'pending') return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={bg}>
+      <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl text-center">
+        <span className="material-icons-round" style={{ fontSize: 48, color: '#f59e0b' }}>hourglass_top</span>
+        <h2 className="text-lg font-bold text-slate-800 mt-3 mb-2">รอการอนุมัติ</h2>
+        <p className="text-sm text-slate-500">บัญชีของคุณกำลังรอการอนุมัติจาก IT<br/>ระบบจะแจ้งผ่าน LINE เมื่ออนุมัติแล้ว</p>
+        <Link href="/" className="block mt-6 text-sm text-slate-400">← กลับหน้าหลัก</Link>
+      </div>
+    </div>
+  )
+
+  // ─── Suspended ───
+  if (authState === 'suspended') return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={bg}>
+      <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl text-center">
+        <span className="material-icons-round" style={{ fontSize: 48, color: '#ef4444' }}>block</span>
+        <h2 className="text-lg font-bold text-slate-800 mt-3 mb-2">บัญชีถูกระงับ</h2>
+        <p className="text-sm text-slate-500">กรุณาติดต่อ IT เพื่อปลดล็อคบัญชี</p>
+        <Link href="/" className="block mt-6 text-sm text-slate-400">← กลับหน้าหลัก</Link>
+      </div>
+    </div>
+  )
+
+  // ─── Register (ผู้ใช้ใหม่) ───
+  async function handleRegister() {
+    if (!regFirstName.trim()) { setRegError('กรุณากรอกชื่อ'); return }
+    if (!regUsername.trim())  { setRegError('กรุณากรอก Username'); return }
+    if (!regPhone.trim())     { setRegError('กรุณากรอกเบอร์โทรศัพท์'); return }
+    setRegSaving(true); setRegError('')
+    try {
+      const res = await fetch(`${API}/api/auth/line/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: tid, firstName: regFirstName, lastName: regLastName, username: regUsername, phone: regPhone }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setAuthState('pending')
+      } else {
+        setRegError(data.detail || data.message || 'เกิดข้อผิดพลาด')
+      }
+    } catch { setRegError('เกิดข้อผิดพลาดในการเชื่อมต่อ') }
+    finally { setRegSaving(false) }
+  }
+
+  if (authState === 'register') return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 py-8" style={bg}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          {linePic && <img src={linePic} alt="" className="w-12 h-12 rounded-full border-2 border-green-200" />}
+          <div>
+            <h2 className="font-bold text-slate-800">ยินดีต้อนรับ!</h2>
+            <p className="text-xs text-slate-500">{lineName}</p>
+          </div>
+        </div>
+
+        <p className="text-sm text-slate-600 mb-4">กรอกข้อมูลเพื่อสมัครสมาชิก</p>
+
+        {regError && <div className="mb-3 p-3 rounded-lg text-sm text-red-700 bg-red-50 border border-red-200">{regError}</div>}
+
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">ชื่อ *</label>
+              <input value={regFirstName} onChange={e => setRegFirstName(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                placeholder="ชื่อจริง" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">นามสกุล</label>
+              <input value={regLastName} onChange={e => setRegLastName(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                placeholder="นามสกุล" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Username *</label>
+            <input value={regUsername} onChange={e => setRegUsername(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              placeholder="เช่น EMP0001" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">เบอร์โทรศัพท์ *</label>
+            <input value={regPhone} onChange={e => setRegPhone(e.target.value)} type="tel"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              placeholder="0812345678" />
+          </div>
+        </div>
+
+        <button onClick={handleRegister} disabled={regSaving}
+          className="mt-5 w-full bg-green-500 hover:bg-green-600 text-white py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50">
+          {regSaving
+            ? <><span className="material-icons-round text-base animate-spin">sync</span>กำลังส่ง...</>
+            : <><span className="material-icons-round text-base">send</span>ส่งคำขอสมัครสมาชิก</>}
+        </button>
+        <Link href="/" className="block text-center text-sm text-slate-400 mt-4">← กลับหน้าหลัก</Link>
+      </div>
+    </div>
+  )
+
+  // ─── Error ───
+  if (authState === 'error') return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={bg}>
+      <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl text-center">
+        <span className="material-icons-round" style={{ fontSize: 48, color: '#ef4444' }}>error_outline</span>
+        <h2 className="text-lg font-bold text-slate-800 mt-3 mb-2">เกิดข้อผิดพลาด</h2>
+        <p className="text-sm text-slate-500 mb-4">ยังไม่ได้ตั้งค่า LINE Login หรือ session หมดอายุ</p>
+        <Link href="/">
+          <button style={{ width: '100%', padding: '10px', borderRadius: 10, background: '#2563eb', color: 'white', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>กลับหน้าหลัก</button>
+        </Link>
+      </div>
+    </div>
+  )
+
+  // ─── Form (ผ่าน LINE แล้ว) ───
   return (
-    <div className="category-select-page min-h-screen" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%)' }}>
+    <div className="category-select-page min-h-screen" style={bg}>
       {/* Header */}
       <div className="sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b"
         style={{ position: 'relative', background: 'rgba(15,23,42,0.95)', borderColor: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)' }}>
@@ -211,7 +393,10 @@ export default function StandalonePage() {
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.12)' }}>
             <span className="material-icons-round text-white" style={{ fontSize: 18 }}>corporate_fare</span>
           </div>
-          <span className="text-white font-bold text-sm">PlaNeat — บันทึกข้อมูลประจำวัน</span>
+          <div>
+            <span className="text-white font-bold text-sm block">PlaNeat — บันทึกข้อมูลประจำวัน</span>
+            <span className="text-slate-400 text-xs">สวัสดี, {userName}</span>
+          </div>
         </div>
         <Link href="/">
           <button className="landing-btn-secondary" style={{ padding: '6px 14px', fontSize: 12 }}>
@@ -222,40 +407,37 @@ export default function StandalonePage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6" style={{ position: 'relative', zIndex: 1 }}>
-        {/* Recorder info */}
+        {/* วันที่ */}
         <div className="bg-white rounded-2xl p-4 mb-5 shadow-sm border border-slate-100">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">พิมพ์ชื่อของคุณเพื่อค้นหาสิทธิ์ <span className="text-red-500">*</span></label>
-              <input type="text" className="form-input" placeholder="กรอกชื่อ" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">วันที่ <span className="text-red-500">*</span></label>
-              <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-          </div>
+          <label className="form-label">วันที่ <span className="text-red-500">*</span></label>
+          <input
+            type="date"
+            className="form-input"
+            style={{ fontSize: 16, padding: '10px 14px', width: '100%' }}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </div>
 
-        {loadingCats && (
-          <div className="text-center py-6">
-            <span className="material-icons-round spin text-slate-400" style={{ fontSize: 24 }}>refresh</span>
-            <p className="text-sm text-slate-500 mt-2">กำลังค้นหาหมวดค่าใช้จ่าย...</p>
-          </div>
-        )}
-
-        {!loadingCats && name.trim().length >= 2 && categories.length === 0 && (
+        {categories.length === 0 && (
           <div className="text-center py-8 bg-white rounded-2xl border border-slate-100 shadow-sm">
             <span className="material-icons-round text-slate-300" style={{ fontSize: 40 }}>lock</span>
-            <p className="text-slate-500 mt-2 text-sm">คุณไม่มีสิทธิ์เข้าถึงหมวดหมู่ใดๆ<br/>กรุณาติดต่อบัญชีเพื่อเปิดสิทธิ์</p>
+            <p className="text-slate-500 mt-2 text-sm">คุณยังไม่มีสิทธิ์กรอกข้อมูลในหมวดใด<br/>กรุณาติดต่อ IT เพื่อเพิ่มสิทธิ์</p>
           </div>
         )}
 
         {/* Category panels */}
-        {!loadingCats && categories.map((cat) => {
+        {categories.map((cat) => {
           const budgetEntry = (budget?.data as any)?.[cat.id]
           const isOpen = openPanel === cat.id
           const items = panels[cat.id] || []
-          
+
+          // คำนวณยอดร่าง (preview) real-time ตามที่กรอกแบบฟอร์ม
+          const draftTotal = items.reduce((sum, item) => sum + calcTotalDynamic(cat, item), 0)
+          const previewSpentMonth = (budgetEntry?.spentMonth || 0) + draftTotal
+          const previewRemain = (budgetEntry?.monthlyBudget || 0) - previewSpentMonth
+          const remainColor = previewRemain < 0 ? 'text-red-500' : previewSpentMonth / (budgetEntry?.monthlyBudget || 1) >= 0.8 ? 'text-amber-500' : 'text-green-600'
+
           return (
             <div key={cat.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-4 overflow-hidden">
               {/* Header */}
@@ -267,12 +449,10 @@ export default function StandalonePage() {
                   <p className="text-sm font-bold text-slate-800">{cat.name}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  {budgetEntry && (
+                  {budgetEntry?.monthlyBudget > 0 && (
                     <div className="text-right hidden sm:block">
                       <p className="text-xs text-slate-400">งบคงเหลือ/เดือน</p>
-                      <p className={`text-xs font-bold ${budgetEntry.remainMonth < 0 ? 'text-red-500' : 'text-green-600'}`}>
-                        {fmt(budgetEntry.remainMonth)}
-                      </p>
+                      <p className={`text-xs font-bold ${remainColor}`}>{fmt(previewRemain)}</p>
                     </div>
                   )}
                   <span className="material-icons-round text-slate-400" style={{ fontSize: 20 }}>
@@ -281,7 +461,7 @@ export default function StandalonePage() {
                 </div>
               </button>
 
-              {/* Budget info strip */}
+              {/* Budget info strip — real-time preview */}
               {isOpen && budgetEntry && (
                 <div className="px-4 py-2 border-t border-slate-50 grid grid-cols-3 gap-2 text-center text-xs" style={{ background: cat.color + '10' }}>
                   <div>
@@ -290,11 +470,14 @@ export default function StandalonePage() {
                   </div>
                   <div>
                     <p className="text-slate-500">ใช้เดือนนี้</p>
-                    <p className="font-bold text-slate-700">{fmt(budgetEntry.spentMonth)}</p>
+                    <p className={`font-bold ${draftTotal > 0 ? 'text-amber-600' : 'text-slate-700'}`}>
+                      {fmt(previewSpentMonth)}
+                      {draftTotal > 0 && <span className="block text-xs font-normal text-slate-400">(+{fmt(draftTotal)} ร่าง)</span>}
+                    </p>
                   </div>
                   <div>
                     <p className="text-slate-500">คงเหลือ/เดือน</p>
-                    <p className={`font-bold ${budgetEntry.remainMonth < 0 ? 'text-red-500' : 'text-green-600'}`}>{fmt(budgetEntry.remainMonth)}</p>
+                    <p className={`font-bold ${remainColor}`}>{fmt(previewRemain)}</p>
                   </div>
                 </div>
               )}

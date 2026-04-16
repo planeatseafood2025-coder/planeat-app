@@ -113,13 +113,14 @@ async def get_all_categories(active_only: bool = True) -> list:
     return result
 
 
-async def get_categories_for_user(username: str, role: str) -> list:
+async def get_categories_for_user(username: str, role: str, public_only: bool = False) -> list:
     """
     ดึง categories ที่ user มีสิทธิ์กรอกข้อมูล
 
     กฎสิทธิ์:
-    - Manager roles → เข้าถึงได้ทุกหมวดเสมอ
-    - allowedRoles/allowedUsers ว่างทั้งคู่ → ไม่มีใครเข้าได้ (นอกจาก manager)
+    - public_only=True (standalone page) → ไม่มี manager bypass, เช็ค allowedUsers/allowedRoles เท่านั้น
+    - Manager roles → เข้าถึงได้ทุกหมวดเสมอ (เฉพาะ login ผ่านระบบหลัก)
+    - allowedRoles/allowedUsers ว่างทั้งคู่ → ไม่มีใครเข้าได้
     - ระบุ allowedRoles/allowedUsers → เฉพาะคนที่ได้รับสิทธิ์เท่านั้น
     """
     all_cats = await get_all_categories()
@@ -127,13 +128,13 @@ async def get_categories_for_user(username: str, role: str) -> list:
     for cat in all_cats:
         allowed_roles = cat.get("allowedRoles", [])
         allowed_users = cat.get("allowedUsers", [])
-        # Manager เข้าได้เสมอ
-        if role in MANAGER_ROLES:
+
+        if not public_only and role in MANAGER_ROLES:
+            # Manager ผ่าน login ปกติ → เห็นทุกหมวด
             accessible.append(cat)
-        # ถ้าไม่ได้ระบุใคร → ไม่มีสิทธิ์ (ต้องให้ manager เปิดก่อน)
         elif not allowed_roles and not allowed_users:
+            # ยังไม่ได้กำหนดผู้กรอก → ไม่มีใครเข้าได้
             pass
-        # ตรงตาม role หรือ username ที่ระบุไว้
         elif role in allowed_roles or username in allowed_users:
             accessible.append(cat)
     return accessible

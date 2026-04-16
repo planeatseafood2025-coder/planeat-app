@@ -278,6 +278,7 @@ export interface UserRecord {
   lineId?: string
   jobTitle?: string
   role: Role
+  roles?: Role[]
   status: UserStatus
   permissions: UserPermissions
   profilePhoto?: string

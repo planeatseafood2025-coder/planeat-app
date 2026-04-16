@@ -213,6 +213,21 @@ async def set_budget(payload: dict) -> dict:
     if not month_year:
         return {"success": False, "message": "monthYear is required"}
 
+    # Auto-compute daily = monthly ÷ days ถ้า daily ไม่ได้ตั้งไว้
+    try:
+        parts = month_year.split("/")
+        mm, yyyy = int(parts[0]), int(parts[1])
+        import calendar as _cal
+        days_in_month = _cal.monthrange(yyyy, mm)[1]
+        for cat_key, vals in budgets.items():
+            if isinstance(vals, dict):
+                monthly = float(vals.get("monthly", 0))
+                daily   = float(vals.get("daily", 0))
+                if monthly > 0 and daily == 0:
+                    vals["daily"] = round(monthly / days_in_month, 2)
+    except Exception:
+        pass
+
     # Upsert
     await db.budgets.update_one(
         {"monthYear": month_year},

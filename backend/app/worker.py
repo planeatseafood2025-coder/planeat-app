@@ -134,6 +134,81 @@ async def run_budget_reminder(ctx: dict):
         logger.error("run_budget_reminder error: %s", e)
 
 
+async def run_expense_input_reminder(ctx: dict):
+    """
+    Cron ทุกวัน 09:00 (ไทย) = 02:00 UTC ยกเว้นวันอาทิตย์
+    ส่งแจ้งเตือน LINE ไปยังผู้ที่มีสิทธิ์กรอกข้อมูล (permissions มี true อย่างน้อย 1 ข้อ)
+    """
+    import os
+    from .database import get_db
+    from .services.line_notify_service import _push_to_uid
+
+    now = datetime.now()
+    # weekday(): 0=จันทร์ ... 6=อาทิตย์  — ถ้าอาทิตย์ให้ข้ามไป
+    if now.weekday() == 6:
+        logger.info("expense_input_reminder: skip Sunday")
+        return
+
+    public_url = os.environ.get("PUBLIC_URL", "").rstrip("/")
+    expense_url = f"{public_url}" if public_url else "/"
+
+    # วันในภาษาไทย
+    th_days = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
+    th_months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+                 "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+    day_name  = th_days[now.weekday()]
+    date_str  = f"วัน{day_name}ที่ {now.day} {th_months[now.month - 1]} {now.year + 543}"
+
+    try:
+        db = get_db()
+        # หา user ที่มีสิทธิ์กรอกข้อมูลอย่างน้อย 1 หมวด และมี lineUid
+        users = await db.users.find({
+            "status": "active",
+            "lineUid": {"$exists": True, "$ne": ""},
+            "$or": [
+                {"permissions.labor":  True},
+                {"permissions.raw":    True},
+                {"permissions.chem":   True},
+                {"permissions.repair": True},
+            ]
+        }, {"lineUid": 1, "name": 1, "firstName": 1, "permissions": 1}).to_list(None)
+
+        sent = 0
+        for u in users:
+            line_uid = u.get("lineUid", "")
+            if not line_uid:
+                continue
+            name = u.get("firstName") or u.get("name") or "คุณ"
+
+            # สร้างรายการหมวดที่มีสิทธิ์
+            perm = u.get("permissions", {})
+            perm_labels = []
+            if perm.get("labor"):  perm_labels.append("ค่าแรงงาน")
+            if perm.get("raw"):    perm_labels.append("ค่าวัตถุดิบ")
+            if perm.get("chem"):   perm_labels.append("ค่าเคมี")
+            if perm.get("repair"): perm_labels.append("ค่าซ่อมบำรุง")
+            perm_text = ", ".join(perm_labels)
+
+            msg = (
+                f"📋 แจ้งเตือนบันทึกรายจ่ายประจำวัน\n"
+                f"{date_str}\n\n"
+                f"สวัสดีครับ คุณ{name} 👋\n"
+                f"หมวดที่รับผิดชอบ: {perm_text}\n\n"
+                f"กรุณาบันทึกรายจ่ายของวันนี้ที่:\n"
+                f"🔗 {expense_url}"
+            )
+            try:
+                await _push_to_uid(line_uid, [{"type": "text", "text": msg}])
+                sent += 1
+            except Exception as e:
+                logger.warning("expense_input_reminder: failed uid=%s err=%s", line_uid, e)
+
+        logger.info("expense_input_reminder: sent to %d users", sent)
+
+    except Exception as e:
+        logger.error("run_expense_input_reminder error: %s", e)
+
+
 async def startup(ctx: dict):
     """เชื่อมต่อ MongoDB เมื่อ worker เริ่ม"""
     from .database import connect_db
@@ -159,13 +234,16 @@ class WorkerSettings:
     functions     = [
         run_scheduled_reports, run_daily_line_summary,
         run_weekly_line_summary, run_monthly_summary, run_budget_reminder,
+        run_expense_input_reminder,
     ]
     cron_jobs     = [
-        cron(run_scheduled_reports,  hour=set(range(24)), minute=0),
-        cron(run_daily_line_summary,  hour=20, minute=0),                    # ทุกวัน 20:00
-        cron(run_weekly_line_summary, hour=20, minute=0, weekday=4),         # ทุกวันศุกร์ 20:00
-        cron(run_monthly_summary,     hour=8,  minute=0, day=30),
-        cron(run_budget_reminder,     hour=9,  minute=0, day=4),
+        cron(run_scheduled_reports,     hour=set(range(24)), minute=0),
+        cron(run_daily_line_summary,    hour=20, minute=0),                           # ทุกวัน 20:00
+        cron(run_weekly_line_summary,   hour=20, minute=0, weekday=4),                # ทุกวันศุกร์ 20:00
+        cron(run_monthly_summary,       hour=8,  minute=0, day=30),
+        cron(run_budget_reminder,       hour=9,  minute=0, day=4),
+        cron(run_expense_input_reminder, hour=2, minute=0,                            # 09:00 ไทย (UTC+7) ทุกวันยกเว้นอาทิตย์
+             weekday={0, 1, 2, 3, 4, 5}),
     ]
     on_startup    = startup
     on_shutdown   = shutdown

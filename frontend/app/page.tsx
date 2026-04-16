@@ -26,13 +26,13 @@ export default function LandingPage() {
           ระบบจัดการสำนักงาน v2.0
         </p>
 
-        {/* Main CTA */}
-        <Link href="/standalone" className="block mb-4">
+        {/* Main CTA — ไปที่ LINE Login standalone โดยตรง */}
+        <a href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/auth/line/standalone-start`} className="block mb-4">
           <button className="landing-btn-main">
             <span className="material-icons-round" style={{ fontSize: 24 }}>edit_note</span>
             บันทึกข้อมูลประจำวัน
           </button>
-        </Link>
+        </a>
 
         {/* Secondary CTA */}
         <Link href="/login">

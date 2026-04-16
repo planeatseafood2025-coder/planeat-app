@@ -295,7 +295,7 @@ async def update_user(username: str, data: dict) -> dict:
         return {"success": False, "message": "ไม่พบผู้ใช้"}
 
     fields: dict = {}
-    for key in ["role", "status", "name", "firstName", "lastName", "nickname", "jobTitle", "phone", "email", "lineId", "approvedBy", "approvedAt", "rejectedBy", "rejectedAt"]:
+    for key in ["role", "roles", "status", "name", "firstName", "lastName", "nickname", "jobTitle", "phone", "email", "lineId", "approvedBy", "approvedAt", "rejectedBy", "rejectedAt"]:
         if key in data and data[key] is not None:
             fields[key] = data[key]
     if "permissions" in data and data["permissions"] is not None:

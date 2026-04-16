@@ -47,8 +47,36 @@ async def my_categories(current: dict = Depends(get_current_user)):
 
 @router.get("/public")
 async def public_categories(username: str = Query("")):
-    """สำหรับหน้า standalone ค้นหาหมวดตามชื่อที่พิมพ์"""
-    cats = await get_categories_for_user(username, "")
+    """สำหรับหน้า standalone — รับทั้ง username หรือชื่อ-นามสกุล"""
+    from ..database import get_db
+    import re
+
+    resolved_username = username.strip()
+    resolved_role = ""
+
+    if resolved_username:
+        db = get_db()
+        # ค้นหา user จาก username ก่อน ถ้าไม่เจอค้นหาจาก firstName/lastName/name
+        user = await db.users.find_one(
+            {"username": resolved_username, "status": "active"},
+            {"username": 1, "role": 1, "roles": 1}
+        )
+        if not user:
+            # ค้นด้วยชื่อ (case-insensitive)
+            escaped = re.escape(resolved_username)
+            user = await db.users.find_one(
+                {"status": "active", "$or": [
+                    {"name":      {"$regex": escaped, "$options": "i"}},
+                    {"firstName": {"$regex": escaped, "$options": "i"}},
+                    {"lastName":  {"$regex": escaped, "$options": "i"}},
+                ]},
+                {"username": 1, "role": 1, "roles": 1}
+            )
+        if user:
+            resolved_username = user["username"]
+            resolved_role = user.get("role", "")
+
+    cats = await get_categories_for_user(resolved_username, resolved_role, public_only=True)
     return {"success": True, "categories": cats}
 
 
