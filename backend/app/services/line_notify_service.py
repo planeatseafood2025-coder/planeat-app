@@ -317,8 +317,7 @@ async def notify_draft_submitted(draft: dict) -> None:
     # ── 2. แจ้ง accounting_manager ส่วนตัวผ่าน lineUid ─────────────────────
     managers = await db.users.find(
         {"role": {"$in": ["accounting_manager", "admin", "super_admin"]},
-         "status": "active",
-         "username": {"$ne": recorder}},
+         "status": "active"},
         {"username": 1, "firstName": 1, "lastName": 1, "nickname": 1,
          "lineUid": 1, "lineNotifyToken": 1, "_id": 0}
     ).to_list(20)
