@@ -1,27 +1,176 @@
 'use client'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { authApi } from '@/lib/api'
 import PlaNeatLogo from '@/components/PlaNeatLogo'
 
 export default function RegisterPage() {
   const router = useRouter()
-  return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden"
-      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%)' }}>
-      <div className="w-full max-w-sm mx-auto px-6 text-center relative z-10">
-        <div className="flex justify-center mb-5">
-          <PlaNeatLogo size="lg" showText={true} />
+  const [form, setForm] = useState({
+    firstName: '', lastName: '', nickname: '',
+    phone: '', email: '', lineId: '', jobTitle: '',
+    username: '', password: '', confirmPassword: '',
+  })
+  const [showPass, setShowPass] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  function set(key: keyof typeof form, val: string) {
+    setForm(prev => ({ ...prev, [key]: val }))
+  }
+
+  async function handleSubmit() {
+    if (!form.firstName.trim() || !form.lastName.trim()) { setError('กรุณากรอกชื่อ-นามสกุล'); return }
+    if (!form.phone.trim()) { setError('กรุณากรอกเบอร์โทรศัพท์'); return }
+    if (!form.username.trim()) { setError('กรุณากรอก Username'); return }
+    if (form.password.length < 6) { setError('Password ต้องมีอย่างน้อย 6 ตัวอักษร'); return }
+    if (form.password !== form.confirmPassword) { setError('Password ไม่ตรงกัน'); return }
+
+    setError(''); setLoading(true)
+    try {
+      const res = await authApi.register(form) as { success: boolean; message?: string }
+      if (res.success) setDone(true)
+      else setError(res.message || 'สมัครสมาชิกไม่สำเร็จ')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด')
+    } finally { setLoading(false) }
+  }
+
+  if (done) {
+    return (
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #0ea5e9 100%)' }}>
+        <div className="w-full max-w-sm mx-auto px-6 text-center">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ background: '#d1fae5' }}>
+              <span className="material-icons-round text-green-600" style={{ fontSize: 36 }}>check_circle</span>
+            </div>
+            <h2 className="text-lg font-bold text-slate-800 mb-2">สมัครสมาชิกสำเร็จ!</h2>
+            <p className="text-sm text-slate-500 mb-6">
+              บัญชีของคุณอยู่ระหว่างรอการอนุมัติจากทีม IT<br />
+              ระบบจะแจ้งเตือนทาง LINE เมื่ออนุมัติแล้ว
+            </p>
+            <button className="btn-primary w-full justify-center" onClick={() => router.push('/login')}>
+              <span className="material-icons-round" style={{ fontSize: 16 }}>login</span>
+              กลับหน้าเข้าสู่ระบบ
+            </button>
+          </div>
         </div>
-        <div className="bg-white rounded-2xl p-8 shadow-2xl text-center">
-          <span className="material-icons text-5xl text-slate-300">lock</span>
-          <h2 className="mt-3 text-lg font-bold text-slate-700">ปิดการสมัครสมาชิก</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            ระบบรับสมาชิกผ่าน <strong className="text-green-600">LINE Login</strong> เท่านั้น<br />
-            กรุณาติดต่อทีม IT เพื่อขอสิทธิ์เข้าใช้งาน
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center py-8"
+      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0ea5e9 100%)' }}>
+      <div className="w-full max-w-md mx-auto px-6">
+        <div className="text-center mb-6">
+          <PlaNeatLogo size="lg" showText={true} />
+          <p className="text-xs mt-2" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            สมัครสมาชิก — บัญชีใหม่จะรอการอนุมัติจาก IT
           </p>
-          <button onClick={() => router.replace('/login')}
-            className="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-sm font-medium">
-            กลับหน้า Login
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-base font-bold text-slate-800 mb-4">ข้อมูลส่วนตัว</h2>
+
+          {error && (
+            <div className="mb-4 p-3 rounded-lg text-sm text-red-700"
+              style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>{error}</div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="form-label">ชื่อ <span className="text-red-500">*</span></label>
+              <input type="text" className="form-input" placeholder="ชื่อจริง"
+                value={form.firstName} onChange={e => set('firstName', e.target.value)} disabled={loading} />
+            </div>
+            <div>
+              <label className="form-label">นามสกุล <span className="text-red-500">*</span></label>
+              <input type="text" className="form-input" placeholder="นามสกุล"
+                value={form.lastName} onChange={e => set('lastName', e.target.value)} disabled={loading} />
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <label className="form-label">ชื่อเล่น</label>
+            <input type="text" className="form-input" placeholder="ชื่อเล่น (ถ้ามี)"
+              value={form.nickname} onChange={e => set('nickname', e.target.value)} disabled={loading} />
+          </div>
+
+          <div className="mb-3">
+            <label className="form-label">เบอร์โทรศัพท์ <span className="text-red-500">*</span></label>
+            <input type="tel" className="form-input" placeholder="0812345678"
+              value={form.phone} onChange={e => set('phone', e.target.value)} disabled={loading} />
+          </div>
+
+          <div className="mb-3">
+            <label className="form-label">อีเมล</label>
+            <input type="email" className="form-input" placeholder="example@domain.com"
+              value={form.email} onChange={e => set('email', e.target.value)} disabled={loading} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="form-label">ตำแหน่งงาน</label>
+              <input type="text" className="form-input" placeholder="ตำแหน่ง"
+                value={form.jobTitle} onChange={e => set('jobTitle', e.target.value)} disabled={loading} />
+            </div>
+            <div>
+              <label className="form-label">Line ID</label>
+              <input type="text" className="form-input" placeholder="Line ID (ถ้ามี)"
+                value={form.lineId} onChange={e => set('lineId', e.target.value)} disabled={loading} />
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 my-4 pt-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">ข้อมูลเข้าสู่ระบบ</h3>
+          </div>
+
+          <div className="mb-3">
+            <label className="form-label">Username <span className="text-red-500">*</span></label>
+            <input type="text" className="form-input" placeholder="ตั้ง Username สำหรับเข้าสู่ระบบ"
+              value={form.username}
+              onChange={e => set('username', e.target.value.toLowerCase().replace(/\s/g, ''))}
+              disabled={loading} />
+          </div>
+
+          <div className="mb-3">
+            <label className="form-label">Password <span className="text-red-500">*</span></label>
+            <div className="relative">
+              <input type={showPass ? 'text' : 'password'} className="form-input pr-10"
+                placeholder="อย่างน้อย 6 ตัวอักษร"
+                value={form.password} onChange={e => set('password', e.target.value)} disabled={loading} />
+              <button type="button" onClick={() => setShowPass(!showPass)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                tabIndex={-1}>
+                <span className="material-icons-round" style={{ fontSize: 18 }}>
+                  {showPass ? 'visibility_off' : 'visibility'}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <label className="form-label">ยืนยัน Password <span className="text-red-500">*</span></label>
+            <input type="password" className="form-input" placeholder="กรอก Password อีกครั้ง"
+              value={form.confirmPassword} onChange={e => set('confirmPassword', e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSubmit()} disabled={loading} />
+          </div>
+
+          <button className="btn-primary w-full justify-center" onClick={handleSubmit} disabled={loading}>
+            {loading
+              ? <><span className="material-icons-round spin" style={{ fontSize: 16 }}>refresh</span>กำลังส่งข้อมูล...</>
+              : <><span className="material-icons-round" style={{ fontSize: 16 }}>person_add</span>สมัครสมาชิก</>}
           </button>
+
+          <p className="text-center text-xs text-slate-500 mt-4">
+            มีบัญชีแล้ว?{' '}
+            <Link href="/login" className="text-blue-600 hover:underline">เข้าสู่ระบบ</Link>
+          </p>
         </div>
       </div>
     </div>

@@ -63,10 +63,8 @@ async def _get_users_by_role(roles: list) -> list:
     return await cursor.to_list(None)
 
 
-def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: str, detail: str, draft_id: str = "") -> dict:
-    """สร้าง Flex Message Card สำหรับขออนุมัติค่าใช้จ่าย
-    ปุ่มใช้ postback พร้อม draft_id เพื่อให้ระบุรายการได้ถูกต้องเมื่อมีหลายรายการ
-    """
+def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: str, detail: str) -> dict:
+    """สร้าง Flex Message Card สำหรับขออนุมัติค่าใช้จ่าย"""
     return {
         "type": "flex",
         "altText": f"🔔 รายการรอการอนุมัติ — {recorder_name} / {cat} / ฿{amount}",
@@ -122,10 +120,9 @@ def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: st
                         "color": "#16a34a",
                         "height": "sm",
                         "action": {
-                            "type": "postback",
+                            "type": "message",
                             "label": "✅ อนุมัติ",
-                            "data": f"action=approve&draft_id={draft_id}",
-                            "displayText": "✅ อนุมัติ",
+                            "text": "Y",
                         },
                     },
                     {
@@ -134,87 +131,14 @@ def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: st
                         "color": "#dc2626",
                         "height": "sm",
                         "action": {
-                            "type": "postback",
+                            "type": "message",
                             "label": "❌ ปฏิเสธ",
-                            "data": f"action=reject&draft_id={draft_id}",
-                            "displayText": "❌ ปฏิเสธ",
+                            "text": "N",
                         },
                     },
                 ],
             },
         },
-    }
-
-
-def _build_pending_carousel(drafts: list) -> dict:
-    """
-    สร้าง Flex Message Carousel แสดงรายการรออนุมัติทั้งหมด
-    bubble สุดท้ายเป็นปุ่ม "อนุมัติทั้งหมด"
-    drafts: list ของ expense_draft document
-    """
-    bubbles = []
-    for d in drafts[:10]:  # LINE รองรับ carousel สูงสุด 12 bubbles
-        draft_id = str(d.get("_id", ""))
-        amount   = _fmt(float(d.get("total", 0)))
-        bubbles.append({
-            "type": "bubble", "size": "kilo",
-            "header": {
-                "type": "box", "layout": "vertical",
-                "backgroundColor": "#1e3a8a", "paddingAll": "12px",
-                "contents": [{"type": "text", "text": "🔔 รอการอนุมัติ",
-                               "color": "#93c5fd", "size": "sm", "weight": "bold"}],
-            },
-            "body": {
-                "type": "box", "layout": "vertical",
-                "paddingAll": "12px", "spacing": "sm",
-                "contents": [
-                    _flex_row("ผู้กรอก", d.get("recorderName", d.get("recorder", "")), "#1e293b", bold=True),
-                    _flex_row("หมวด",    d.get("category", ""),   "#1e293b"),
-                    _flex_row("วันที่",   d.get("date", ""),        "#475569"),
-                    _flex_row("ยอด",     f"฿{amount}",             "#dc2626", bold=True),
-                ],
-            },
-            "footer": {
-                "type": "box", "layout": "horizontal",
-                "spacing": "sm", "paddingAll": "10px",
-                "contents": [
-                    {"type": "button", "style": "primary", "color": "#16a34a", "height": "sm",
-                     "action": {"type": "postback", "label": "✅ อนุมัติ",
-                                "data": f"action=approve&draft_id={draft_id}",
-                                "displayText": "✅ อนุมัติ"}},
-                    {"type": "button", "style": "primary", "color": "#dc2626", "height": "sm",
-                     "action": {"type": "postback", "label": "❌ ปฏิเสธ",
-                                "data": f"action=reject&draft_id={draft_id}",
-                                "displayText": "❌ ปฏิเสธ"}},
-                ],
-            },
-        })
-
-    # bubble สุดท้าย — อนุมัติทั้งหมด
-    bubbles.append({
-        "type": "bubble", "size": "kilo",
-        "body": {
-            "type": "box", "layout": "vertical",
-            "paddingAll": "20px", "spacing": "md",
-            "justifyContent": "center",
-            "contents": [
-                {"type": "text", "text": f"📋 รายการรออนุมัติ",
-                 "size": "sm", "color": "#475569", "align": "center"},
-                {"type": "text", "text": f"{len(drafts)} รายการ",
-                 "size": "xxl", "weight": "bold", "color": "#1e3a8a", "align": "center"},
-                {"type": "separator", "margin": "lg"},
-                {"type": "button", "style": "primary", "color": "#1e3a8a", "margin": "lg",
-                 "action": {"type": "postback", "label": "✅ อนุมัติทั้งหมด",
-                            "data": "action=approve_all",
-                            "displayText": "✅ อนุมัติทั้งหมด"}},
-            ],
-        },
-    })
-
-    return {
-        "type": "flex",
-        "altText": f"📋 รายการรออนุมัติ {len(drafts)} รายการ",
-        "contents": {"type": "carousel", "contents": bubbles},
     }
 
 
@@ -393,7 +317,8 @@ async def notify_draft_submitted(draft: dict) -> None:
     # ── 2. แจ้ง accounting_manager ส่วนตัวผ่าน lineUid ─────────────────────
     managers = await db.users.find(
         {"role": {"$in": ["accounting_manager", "admin", "super_admin"]},
-         "status": "active"},
+         "status": "active",
+         "username": {"$ne": recorder}},
         {"username": 1, "firstName": 1, "lastName": 1, "nickname": 1,
          "lineUid": 1, "lineNotifyToken": 1, "_id": 0}
     ).to_list(20)
@@ -414,7 +339,7 @@ async def notify_draft_submitted(draft: dict) -> None:
                 "draftId": draft_id,
                 "createdAt": datetime.now().isoformat(),
             })
-            flex = _build_approval_flex(recorder_name, cat, date_str, amount, detail or "-", draft_id=draft_id)
+            flex = _build_approval_flex(recorder_name, cat, date_str, amount, detail or "-")
             await _push_to_uid(line_uid, [flex])
         elif notify_token:
             # fallback LINE Notify (ไม่รองรับ Flex)
