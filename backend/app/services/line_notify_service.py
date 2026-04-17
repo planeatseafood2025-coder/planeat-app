@@ -63,8 +63,10 @@ async def _get_users_by_role(roles: list) -> list:
     return await cursor.to_list(None)
 
 
-def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: str, detail: str) -> dict:
-    """สร้าง Flex Message Card สำหรับขออนุมัติค่าใช้จ่าย"""
+def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: str, detail: str, draft_id: str = "") -> dict:
+    """สร้าง Flex Message Card สำหรับขออนุมัติค่าใช้จ่าย
+    ปุ่มใช้ postback พร้อม draft_id เพื่อให้ระบุรายการได้ถูกต้องเมื่อมีหลายรายการ
+    """
     return {
         "type": "flex",
         "altText": f"🔔 รายการรอการอนุมัติ — {recorder_name} / {cat} / ฿{amount}",
@@ -120,9 +122,10 @@ def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: st
                         "color": "#16a34a",
                         "height": "sm",
                         "action": {
-                            "type": "message",
+                            "type": "postback",
                             "label": "✅ อนุมัติ",
-                            "text": "Y",
+                            "data": f"action=approve&draft_id={draft_id}",
+                            "displayText": "✅ อนุมัติ",
                         },
                     },
                     {
@@ -131,9 +134,10 @@ def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: st
                         "color": "#dc2626",
                         "height": "sm",
                         "action": {
-                            "type": "message",
+                            "type": "postback",
                             "label": "❌ ปฏิเสธ",
-                            "text": "N",
+                            "data": f"action=reject&draft_id={draft_id}",
+                            "displayText": "❌ ปฏิเสธ",
                         },
                     },
                 ],
@@ -338,7 +342,7 @@ async def notify_draft_submitted(draft: dict) -> None:
                 "draftId": draft_id,
                 "createdAt": datetime.now().isoformat(),
             })
-            flex = _build_approval_flex(recorder_name, cat, date_str, amount, detail or "-")
+            flex = _build_approval_flex(recorder_name, cat, date_str, amount, detail or "-", draft_id=draft_id)
             await _push_to_uid(line_uid, [flex])
         elif notify_token:
             # fallback LINE Notify (ไม่รองรับ Flex)

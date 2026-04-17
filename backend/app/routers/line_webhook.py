@@ -218,9 +218,12 @@ async def _notify_other_admins_member_handled(
     await db.line_user_approval_pending.delete_many({"targetUsername": target_username})
 
 
-async def _handle_approval_reply(text: str, user_id: str, reply_token: str, access_token: str) -> bool:
+async def _handle_approval_reply(text: str, user_id: str, reply_token: str, access_token: str,
+                                  draft_id_override: str = "") -> bool:
     """
     ตรวจสอบว่า manager ตอบ Y/Yes/N/No เพื่ออนุมัติ/ปฏิเสธรายการค่าใช้จ่าย
+    - draft_id_override: ถ้ามาจาก postback จะส่ง draft_id มาตรงๆ (ถูกต้อง 100%)
+    - ถ้าไม่มี draft_id_override จะ fallback หา pending ล่าสุด (เข้ากันได้กับ Y/N แบบเดิม)
     คืน True ถ้าจัดการแล้ว, False ถ้าไม่ใช่คำตอบ approval
     """
     normalized = text.strip().upper()
@@ -228,13 +231,24 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
         return False
 
     db = get_db()
-    # หา pending approval ของ manager คนนี้ (เรียงตามใหม่สุด)
-    pending = await db.line_approval_pending.find_one(
-        {"managerLineUid": user_id},
-        sort=[("createdAt", -1)]
-    )
-    if not pending:
-        return False
+
+    if draft_id_override:
+        # มาจาก postback — รู้ draft_id ชัดเจน
+        pending = await db.line_approval_pending.find_one(
+            {"managerLineUid": user_id, "draftId": draft_id_override}
+        )
+        if not pending:
+            # อาจถูกดำเนินการไปแล้ว
+            await _send_reply(reply_token, "❌ รายการนี้ดำเนินการไปแล้ว หรือหมดอายุ", access_token)
+            return True
+    else:
+        # fallback: Y/N แบบพิมพ์ — หา pending ล่าสุด
+        pending = await db.line_approval_pending.find_one(
+            {"managerLineUid": user_id},
+            sort=[("createdAt", -1)]
+        )
+        if not pending:
+            return False
 
     draft_id = pending["draftId"]
     manager_username = pending.get("managerUsername", "")
@@ -566,6 +580,24 @@ async def line_webhook(
         elif event_type == "unfollow" and source_type == "user":
             await _handle_unfollow(event)
 
+        elif event_type == "postback":
+            # ปุ่ม postback จาก Flex Message (approve/reject พร้อม draft_id)
+            postback_data = event.get("postback", {}).get("data", "")
+            uid = source.get("userId", "")
+            rt  = event.get("replyToken", "")
+            tok = conf.get("token", "")
+            if postback_data and uid:
+                from urllib.parse import parse_qs
+                params    = parse_qs(postback_data)
+                action    = params.get("action", [""])[0]
+                draft_id  = params.get("draft_id", [""])[0]
+                if action == "approve" and draft_id:
+                    await _handle_approval_reply(text="Y", user_id=uid, reply_token=rt,
+                                                 access_token=tok, draft_id_override=draft_id)
+                elif action == "reject" and draft_id:
+                    await _handle_approval_reply(text="N", user_id=uid, reply_token=rt,
+                                                 access_token=tok, draft_id_override=draft_id)
+
         elif event_type == "message":
             msg = event.get("message", {})
             if msg.get("type") == "text":
@@ -577,7 +609,7 @@ async def line_webhook(
                 handled = await _handle_user_approval_reply(text=text, user_id=uid, reply_token=rt, access_token=tok)
                 if handled:
                     continue
-                # 2. ตรวจ Y/N อนุมัติค่าใช้จ่าย
+                # 2. ตรวจ Y/N อนุมัติค่าใช้จ่าย (fallback ไม่มี draft_id)
                 await _handle_approval_reply(text=text, user_id=uid, reply_token=rt, access_token=tok)
 
     # อัปเดต targetId ใน config
