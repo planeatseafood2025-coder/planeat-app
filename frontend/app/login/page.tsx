@@ -12,8 +12,11 @@ const REMEMBER_KEY = 'planeat_remember'
 
 type Step = 'login' | 'forgot_phone' | 'forgot_otp' | 'forgot_reset'
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+
 export default function LoginPage() {
   const [step, setStep] = useState<Step>('login')
+  const [addFriendUrl, setAddFriendUrl] = useState('')
 
   // Login state
   const [username, setUsername] = useState('')
@@ -35,6 +38,11 @@ export default function LoginPage() {
   const router = useRouter()
   const userRef = useRef<HTMLInputElement>(null)
 
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/settings/line-add-friend`)
+      .then(r => r.json()).then(d => { if (d.addFriendUrl) setAddFriendUrl(d.addFriendUrl) }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     const s = getSession()
@@ -181,6 +189,16 @@ export default function LoginPage() {
                 {loading ? <><span className="material-icons-round spin" style={{ fontSize: 16 }}>refresh</span>กำลังเข้าสู่ระบบ...</>
                   : <><span className="material-icons-round" style={{ fontSize: 16 }}>login</span>เข้าสู่ระบบ</>}
               </button>
+
+              {/* Add Friend Banner */}
+              {addFriendUrl && (
+                <a href={addFriendUrl} target="_blank" rel="noopener noreferrer"
+                  className="mt-4 flex items-center gap-2 p-3 rounded-xl text-sm border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors">
+                  <span className="material-icons-round text-green-500" style={{ fontSize: 18 }}>person_add</span>
+                  <span className="flex-1">แอด LINE OA ก่อนสมัครสมาชิก เพื่อรับการแจ้งเตือน</span>
+                  <span className="material-icons-round text-green-400" style={{ fontSize: 16 }}>open_in_new</span>
+                </a>
+              )}
 
               {/* LINE Login */}
               <div className="mt-3 relative">

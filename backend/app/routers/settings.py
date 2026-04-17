@@ -118,3 +118,15 @@ async def _send_module_welcome(old_mc: dict, new_mc: dict, db) -> None:
                     )
             except Exception:
                 pass
+
+
+@router.get("/line-add-friend")
+async def get_line_add_friend():
+    """Public endpoint — คืน Basic ID และ add friend link สำหรับแสดงในหน้า login"""
+    db = get_db()
+    doc = await db.system_settings.find_one({"_id": SETTINGS_DOC_ID}) or {}
+    basic_id = doc.get("mainLineOa", {}).get("basicId", "").strip()
+    if not basic_id:
+        return {"success": False, "basicId": "", "addFriendUrl": ""}
+    url = f"https://line.me/R/ti/p/{basic_id}" if not basic_id.startswith("http") else basic_id
+    return {"success": True, "basicId": basic_id, "addFriendUrl": url}

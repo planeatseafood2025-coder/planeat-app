@@ -17,6 +17,7 @@ class MainLineOA(BaseModel):
     channelId: str = ""
     channelSecret: str = ""
     targetId: str = ""   # Group ID / User ID
+    basicId: str = ""    # Basic ID ของ OA เช่น @abc1234 (ใช้สร้าง add friend link)
 
 class ModuleConnections(BaseModel):
     """Target Group ID + ชื่อกลุ่ม แยกต่างหากสำหรับแต่ละโมดูล"""

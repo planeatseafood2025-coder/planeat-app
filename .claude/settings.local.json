@@ -86,10 +86,33 @@
       "Bash(certbot --version)",
       "Bash(ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected && whoami && ls /root/planeat-app 2>/dev/null || echo 'no planeat-app'\")",
       "Bash(sshpass -p 'XS&D\\)U,xuy7SzifR.O1v' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected && whoami\")",
-      "Bash(sshpass -p 'n0C7,2PnB?UYVMw?5NG;' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected && whoami && ls /root/\")"
+      "Bash(sshpass -p 'n0C7,2PnB?UYVMw?5NG;' ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"echo connected && whoami && ls /root/\")",
+      "Bash(sshpass -p \"6d/Q2\\(D'Dkq3Fgy87Hs0\" ssh -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git status --short\")",
+      "Bash(sshpass -p \"6d/Q2\\(D'Dkq3Fgy87Hs0\" ssh -i \"c:/Users/hot it/.ssh/planeat-vps\" -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git status --short\")",
+      "Bash(sshpass -p \"6d/Q2\\(D'Dkq3Fgy87Hs0\" ssh -i \"/c/Users/hot it/.ssh/planeat-vps\" -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git status --short\")",
+      "Bash(sshpass -p \"6d/Q2\\(D'Dkq3Fgy87Hs0\" ssh -i \"C:\\\\Users\\\\hot it\\\\.ssh\\\\planeat-vps\" -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git status --short\")",
+      "WebFetch(domain:planeatdev.duckdns.org)",
+      "Bash(cp \"C:/Users/hot it/.ssh/planeat-vps\" /tmp/planeat-vps)",
+      "Bash(chmod 600 /tmp/planeat-vps)",
+      "Bash(sshpass -p \"A@f?BMu@9DSl-8f'B6l;\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"docker ps --format 'table {{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}'\")",
+      "Bash(sshpass -p \"A@f?BMu@9DSl-8f'B6l;\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"docker ps\")",
+      "Bash(sshpass -p \"rEHj\\)DoE/9hIS@lG;tL8\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"free -h && docker stats --no-stream 2>/dev/null | head -10\")",
+      "Bash(sshpass -p \"rEHj\\)DoE/9hIS@lG;tL8\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git status --short | grep -v '.ssh'\")",
+      "Bash(sshpass -p \"rEHj\\)DoE/9hIS@lG;tL8\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git add backend/app/config.py backend/app/database.py backend/app/models/settings.py backend/app/routers/auth.py backend/app/routers/line_webhook.py backend/app/routers/sse.py backend/app/services/auth_service.py backend/app/services/budget_service.py backend/app/services/expense_service.py backend/app/services/line_notify_service.py docker-compose.yml frontend/app/\\\\\\(app\\\\\\)/expense-control/page.tsx frontend/app/\\\\\\(app\\\\\\)/it-access/page.tsx frontend/app/login/page.tsx frontend/app/register/page.tsx frontend/app/standalone/page.tsx frontend/components/layout/Sidebar.tsx frontend/lib/api.ts frontend/types/index.ts backend/app/worker.py backend/app/services/category_service.py && git commit -m 'feat: sync VPS dev — infrastructure, LINE approval, expense fixes, real names' && git push\")",
+      "Bash(sshpass -p \"rEHj\\)DoE/9hIS@lG;tL8\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161)",
+      "Bash(sshpass -p \"rEHj\\)DoE/9hIS@lG;tL8\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git pull --rebase origin main && git push\")",
+      "Bash(sshpass -p \"rEHj\\)DoE/9hIS@lG;tL8\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && git checkout --theirs backend/app/routers/auth.py backend/app/routers/line_webhook.py backend/app/services/line_notify_service.py docker-compose.yml 'frontend/app/register/page.tsx' && git add backend/app/routers/auth.py backend/app/routers/line_webhook.py backend/app/services/line_notify_service.py docker-compose.yml 'frontend/app/register/page.tsx' && git rebase --continue --no-edit && git push\")",
+      "Bash(sshpass -p \"rEHj\\)DoE/9hIS@lG;tL8\" ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no root@76.13.211.161 \"cd ~/planeat-app && GIT_EDITOR=true git rebase --continue && git push\")",
+      "Bash(rsync -az --delete -e 'ssh -i /tmp/planeat-vps -o StrictHostKeyChecking=no' --exclude=.git --exclude=node_modules --exclude=__pycache__ --exclude=.next backend/app/models/settings.py backend/app/routers/settings.py frontend/app/login/page.tsx 'frontend/app/\\(app\\)/integrations/page.tsx' root@76.13.211.161:/root/planeat-app/)",
+      "Bash(scp -i /tmp/planeat-vps -o StrictHostKeyChecking=no 'c:/Users/hot it/Downloads/planeat-app/backend/app/models/settings.py' root@76.13.211.161:/root/planeat-app/backend/app/models/settings.py)",
+      "Bash(scp -i /tmp/planeat-vps -o StrictHostKeyChecking=no 'c:/Users/hot it/Downloads/planeat-app/backend/app/routers/settings.py' root@76.13.211.161:/root/planeat-app/backend/app/routers/settings.py)",
+      "Bash(scp -i /tmp/planeat-vps -o StrictHostKeyChecking=no 'c:/Users/hot it/Downloads/planeat-app/frontend/app/login/page.tsx' root@76.13.211.161:/root/planeat-app/frontend/app/login/page.tsx)",
+      "Bash(scp -i /tmp/planeat-vps -o StrictHostKeyChecking=no 'c:/Users/hot it/Downloads/planeat-app/frontend/app/\\(app\\)/integrations/page.tsx' 'root@76.13.211.161:/root/planeat-app/frontend/app/\\(app\\)/integrations/page.tsx')",
+      "Bash(bash upload-dev.sh)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\hot it\\.ssh"
+      "C:\\Users\\hot it\\.ssh",
+      "\\tmp"
     ]
   }
 }

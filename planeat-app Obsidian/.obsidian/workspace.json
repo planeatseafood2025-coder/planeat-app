@@ -1,0 +1,221 @@
+{
+  "main": {
+    "id": "67c94c173fc5c749",
+    "type": "split",
+    "children": [
+      {
+        "id": "1bd516734f666dc5",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "667594746872563f",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "pages/Database Map.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Database Map"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "6a9f1e3abb545050",
+    "type": "split",
+    "children": [
+      {
+        "id": "b3ba7f45406ca201",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "468baf62fb8aa5c6",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "File explorer"
+            }
+          },
+          {
+            "id": "9d0006c7d695a7b2",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "ค้นหา"
+            }
+          },
+          {
+            "id": "5918a3a954bcb2fe",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "บุ๊กมาร์ก"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "086bad41196cd2c0",
+    "type": "split",
+    "children": [
+      {
+        "id": "3c53590d36311d04",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "a4478c6cfa07c531",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "แบ็คลิงค์"
+            }
+          },
+          {
+            "id": "ac4f4d6d282b88cc",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "ลิงค์ขาออก"
+            }
+          },
+          {
+            "id": "fc6a58fbbf8e3e82",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "แท็ก"
+            }
+          },
+          {
+            "id": "9c0b893952d44bed",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "คุณสมบัติทั้งหมด"
+            }
+          },
+          {
+            "id": "4e3913e8bc7bb4ed",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "โครงเรื่อง"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:เปิด quick switcher": false,
+      "graph:เปิดมุมมองกราฟ": false,
+      "canvas:สร้างผืนผ้าใบใหม่": false,
+      "daily-notes:เปิดโน้ตของวันนี้": false,
+      "templates:แทรกเทมเพลต": false,
+      "command-palette:เปิดกระดานคำสั่ง": false,
+      "bases:สร้างฐานใหม่": false
+    }
+  },
+  "active": "667594746872563f",
+  "lastOpenFiles": [
+    "hotcache.md.tmp.13500.1776441419322",
+    "pages/VPS Infrastructure.md",
+    "pages/Planeat App — ภาพรวม.md",
+    "pages/LINE Command Center.md",
+    "pages/ระบบ LINE.md",
+    "hotcache.md",
+    "hotcache.md.tmp.19720.1776414050878",
+    "hotcache.md.tmp.19720.1776413472400",
+    "pages/โมดูลอื่นๆ.md",
+    "raw/666ghjMiroFish A Simple and Universal Swarm Intelligence Engine, Predicting Anything. 简洁通用的群体智能引擎，预测万物.md",
+    "pages/Budget.md",
+    "pages/CRM — Customers.md",
+    "pages/Sales Pipeline.md",
+    "ยังไม่ได้ตั้งชื่อ.canvas",
+    "CLAUDE.md",
+    "pages/Auth & Roles.md",
+    "pages/งานขั้นต่อไป.md",
+    "pages/Roadmap.md",
+    "CLAUDE.md.tmp.19720.1776412195011",
+    "index.md.tmp.19720.1776410015425",
+    "pages/Changelog — VPS Session 2026-04-17.md",
+    "pages/Deploy — วิธีใช้งาน.md",
+    "pages/Deploy & Environments.md",
+    "pages/Infrastructure.md",
+    "index.md",
+    "hotcache.md.tmp.19720.1776398362375",
+    "index.md.tmp.19720.1776398353587",
+    "pages/MiroFish — อธิบายสำหรับคนทั่วไป.md",
+    "log.md",
+    "pages/Expense Control.md",
+    "pages/MiroFish.md",
+    "สร้างลิงก์.md",
+    "ยินดีต้อนรับ.md",
+    "pages",
+    "raw"
+  ]
+}

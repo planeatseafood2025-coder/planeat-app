@@ -193,7 +193,7 @@ async def notify_new_member_to_admins(
     import uuid as _uuid
 
     admins = await db.users.find(
-        {"role": {"$in": ["it", "admin", "super_admin"]}, "status": "active"},
+        {"role": {"$in": ["it", "IT", "admin", "super_admin"]}, "status": {"$in": ["active", "approved"]}},
         {"username": 1, "lineUid": 1, "lineNotifyToken": 1, "_id": 0}
     ).to_list(20)
 

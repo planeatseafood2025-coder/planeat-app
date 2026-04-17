@@ -5,11 +5,41 @@
 - **Backend**: FastAPI + Motor (async) + MongoDB — port 8001
 - **Deploy**: Docker Compose
 
-## Deploy Command (ใช้ทุกครั้งที่แก้โค้ด)
+## Deploy Workflow (โครงสร้างใหม่)
+
+```
+เครื่องหลัก → อัพขึ้น VPS โดยตรง (ไม่ผ่าน git)
+VPS (AI แก้โค้ด) → git push → เครื่องหลัก pull
+```
+
+**ทิศทางการไหลของโค้ด:**
+- แก้บนเครื่องหลัก → sync ขึ้น VPS โดยตรง
+- AI แก้บน VPS → commit + push → เครื่องหลัก `git pull`
+- **ไม่มี** GitHub Actions CI/CD (ยกเลิกแผนเดิม)
+
+## Deploy Command (รัน บน VPS หลัง sync โค้ด)
 ```bash
-cd "C:\Users\hot it\Downloads\planeat-app"
+cd ~/planeat-app
 docker-compose down && docker rmi planeat-app-frontend planeat-app-backend -f && docker-compose up -d --build
 ```
+
+## Frontend only (เร็วกว่า ถ้าแก้แค่ frontend)
+```bash
+docker-compose build --no-cache frontend && docker-compose up -d
+```
+
+---
+
+## Domain & Environment
+| | URL | หมายเหตุ |
+|---|---|---|
+| Local + ngrok | `https://porous-nell-cruelly.ngrok-free.dev` | เปลี่ยนทุกครั้งที่เปิด ngrok ใหม่ |
+| Dev (duckdns) | `https://planeatdev.duckdns.org` | IP 124.120.58.98 — ยังไม่มี SSL |
+| Production | `https://planeatsupport.duckdns.org` | VPS จริง |
+
+**ENV ที่สำคัญใน `.env`:**
+- `PUBLIC_URL` — URL สาธารณะของ backend (ใช้แสดง Webhook URL ใน UI)
+- `MONGO_PASSWORD`, `JWT_SECRET`, `CORS_ORIGINS`
 
 ---
 
@@ -25,46 +55,76 @@ docker-compose down && docker rmi planeat-app-frontend planeat-app-backend -f &&
 - [x] **OverviewTab** — แสดงสรุปงบ, Top 5 หมวดหมู่, กรอง category ได้
 - [x] **DailyTab** — บันทึกรายจ่ายรายวัน + ปุ่ม Refresh
 - [x] **HistoryTab** — ดูประวัติ, แก้ไขรายการ (manager), ส่ง LINE Notify
-- [x] **CategoryManagerTab** — ปรับปรุง UX: เติมฟิลด์อัตโนมัติเมื่อเปลี่ยนสูตรทันที, เพิ่มฟิลด์ "ชื่อรายการ" ในค่าเริ่มต้นทุกสูตร, ล็อคหน่วยนับสำหรับยอดเงิน/ค่าคงที่ (แก้ได้เฉพาะจำนวน)
+- [x] **CategoryManagerTab** — ปรับปรุง UX
 
-### Backend Endpoints ที่เพิ่มล่าสุด
-- [x] `PUT /api/expenses/{id}` — แก้ไขรายการ (manager เท่านั้น)
-- [x] `POST /api/notifications/line-notify` — ส่งข้อความผ่าน LINE Notify API
+### Phase 0 — Infrastructure ✅
+- [x] Redis (caching + ARQ job queue)
+- [x] ARQ Background Worker (`planeat-worker`)
+- [x] Server-Sent Events (SSE) แทน polling
+- [x] Logging, `.env.example`
 
-### Phase 0 — Infrastructure ✅ (เสร็จทั้งหมด)
-- [x] 0.6 ตรวจสอบ `.gitignore` (ป้องกัน Secret หลุด)
-- [x] 0.7 ย้าย PDF Storage ออกจาก Memory ไปยัง Docker Volume (`pdf_data`)
-- [x] 0.8 + 0.11 ติดตั้ง Redis (caching หมวดหมู่ + ARQ job queue)
-- [x] 0.9 แยก Scheduler ออกเป็น ARQ Background Worker (`planeat-worker`)
-- [x] 0.10 เปลี่ยน Polling 30s เป็น Server-Sent Events (SSE)
-- [x] 0.12 ตั้งค่าระบบ Logging (LOG_LEVEL env, structured format)
-- [x] 0.13 อัปเดต `.env.example` ให้ครบสำหรับการสเกล
+### Phase 1A-1D — CRM ✅
+- [x] Customer CRUD + Segments + LINE OA Auto-Import + Google Sheets
+
+### LINE System ✅ (ทำล่าสุด)
+- [x] **LINE Login OAuth 2.0** — ปุ่ม Login ด้วย LINE ในหน้า login
+  - flow: LINE OAuth → callback → กรอกข้อมูล → pending → IT อนุมัติ
+  - เก็บ `lineUid` ใน users collection
+- [x] **ลบ OTP สมัครสมาชิก** ออกทั้งหมด (ใช้ LINE Login แทน)
+- [x] **Flex Message อนุมัติค่าใช้จ่าย** — ส่งหา accounting_manager ส่วนตัวผ่าน lineUid
+  - ปุ่ม ✅ อนุมัติ / ❌ ปฏิเสธ กดได้เลย
+  - webhook รับ Y/N → approve/reject อัตโนมัติ
+  - แจ้ง recorder กลับทาง LINE
+- [x] **Flex Message อนุมัติสมาชิกใหม่** — ส่งหา IT/Admin ทุกคนส่วนตัว
+  - ปุ่ม ✅ อนุมัติ / ❌ ปฏิเสธ กดได้เลย
+  - webhook รับ Y/N → เปลี่ยน status active/rejected
+  - แจ้งผู้สมัครทาง LINE ทันที
+- [x] **แจ้งผู้กรอก expense** ทาง LINE เมื่อส่งรายการสำเร็จ
+- [x] **Webhook URL** ดึงจาก `PUBLIC_URL` env (ถูกต้องทุก environment)
+
+### Integrations Page (`/integrations`) ✅
+- [x] Sidebar layout — 5 เมนู: LINE OA, LINE Login, SMTP, โมดูล, แจ้งเตือน
+- [x] แสดง Webhook URL จริงจาก backend พร้อมปุ่ม copy
+- [x] Status dot แสดงว่าเชื่อมต่อแล้วหรือยัง
+
+### Register Page ✅
+- [x] ปิดการสมัครผ่านหน้าเว็บ → แสดงข้อความให้ใช้ LINE Login แทน
 
 ### อื่นๆ
-- [x] Profile page — ขอ/แสดงสิทธิ์
-- [x] IT Access page
-- [x] Chat page (SSE real-time)
-- [x] Inventory page
-- [x] PDF Report — landscape A4, Thai font, รายวัน/รายสัปดาห์/รายเดือน
-
-### Phase 1A — Core Customer CRUD ✅
-- [x] Customer model + service + router (workspace-scoped)
-- [x] หน้ารายการลูกค้า + ค้นหา + กรอง + Export CSV
-- [x] หน้าดูรายละเอียดลูกค้า
-
-### Phase 1B — Customer Segments ✅
-- [x] 1.8 `customer_segments` collection + Pydantic models + API (`/api/crm-workspaces/{ws}/segments`)
-- [x] 1.9 หน้าจัดการกลุ่มลูกค้า (`/customers/segments`) — CRUD + color/icon picker
-- [x] 1.10 เพิ่ม `segmentIds` field ใน Customer model + form เลือกกลุ่มได้
-- [x] 1.11 Filter ลูกค้าตาม segment (segment pills + backend query)
+- [x] Profile page, IT Access page, Chat (SSE), Inventory, PDF Report
 
 ---
 
-## งานที่ยังค้าง / ยังไม่ได้ทำ ⏳
+## LINE System Architecture
 
-- [ ] ทดสอบการใช้งานจริงทุก feature ที่เพิ่มใหม่
-- [x] Phase 1C — LINE OA Auto-Import (1.12–1.14)
-- [x] Phase 1D — Google Sheets Auto-Import (1.15–1.17)
+### Collections ใน MongoDB
+- `users` — เก็บ `lineUid`, `status` (pending/active/rejected)
+- `line_login_states` — CSRF state สำหรับ LINE Login OAuth
+- `line_login_temp` — เก็บ profile ชั่วคราวระหว่างสมัคร (15 นาที)
+- `line_approval_pending` — รอคำตอบ Y/N อนุมัติ expense จาก manager
+- `line_user_approval_pending` — รอคำตอบ Y/N อนุมัติสมาชิกจาก IT/Admin
+
+### Webhook URL
+```
+/api/line/webhook/main       ← mainLineOa
+/api/line/webhook/{config_id} ← lineOaConfigs แต่ละตัว
+```
+
+### ลำดับรับข้อความใน webhook
+1. Y/N อนุมัติสมาชิกใหม่ (`line_user_approval_pending`)
+2. Y/N อนุมัติค่าใช้จ่าย (`line_approval_pending`)
+
+### การส่ง LINE
+- **Push ส่วนตัว** → ใช้ `lineUid` + `mainLineOa.token`
+- **Push กลุ่ม** → ใช้ `targetId` + `mainLineOa.token`
+- **LINE Notify** → fallback ถ้าไม่มี `lineUid`
+
+---
+
+## งานที่ยังค้าง ⏳
+- [ ] ติดตั้ง SSL บน `planeatdev.duckdns.org` สำหรับทดสอบ
+- [ ] Push โค้ดขึ้น VPS (git push → GitHub Actions → deploy อัตโนมัติ)
+- [ ] ทดสอบ LINE Flex Message + Y/N approval จริง
 - [ ] Phase 1E — Facebook/Instagram (รอ Meta Review)
 - [ ] Phase 2+ — ตามแผน PROJECT_MASTER_PLAN.md
 
@@ -76,27 +136,35 @@ docker-compose down && docker rmi planeat-app-frontend planeat-app-backend -f &&
 planeat-app/
 ├── frontend/
 │   ├── app/(app)/
-│   │   ├── expense-control/page.tsx   ← หน้าหลัก (OverviewTab, DailyTab, HistoryTab, CategoryManagerTab)
-│   │   ├── dashboard/page.tsx         ← redirect → /expense-control
-│   │   ├── chat/page.tsx
-│   │   ├── inventory/page.tsx
-│   │   ├── profile/page.tsx
-│   │   └── it-access/page.tsx
+│   │   ├── expense-control/page.tsx
+│   │   ├── integrations/page.tsx      ← การเชื่อมต่อระบบ (sidebar layout)
+│   │   ├── it-access/page.tsx
+│   │   └── ...
+│   ├── app/auth/line/callback/page.tsx ← LINE Login callback
+│   ├── app/login/page.tsx              ← มีปุ่ม LINE Login
+│   ├── app/register/page.tsx           ← ปิดแล้ว → redirect login
 │   ├── components/layout/Sidebar.tsx
-│   ├── lib/api.ts                     ← API functions ทั้งหมด
+│   ├── lib/api.ts
 │   └── types/index.ts
 ├── backend/
 │   ├── app/
-│   │   ├── routers/                   ← expenses.py, notifications.py, categories.py, ...
-│   │   ├── services/                  ← business logic
-│   │   └── models/                    ← Pydantic models
-│   └── requirements.txt
+│   │   ├── routers/
+│   │   │   ├── auth.py                ← LINE Login OAuth endpoints
+│   │   │   ├── line_webhook.py        ← webhook + Y/N approval handler
+│   │   │   ├── expenses.py
+│   │   │   └── ...
+│   │   ├── services/
+│   │   │   ├── line_notify_service.py ← Flex Message builder + push functions
+│   │   │   ├── expense_service.py
+│   │   │   └── ...
+│   │   └── models/
 └── docker-compose.yml
 ```
 
 ---
 
 ## หมายเหตุสำคัญ
-- Docker cache ปัญหาบ่อย → ต้อง `docker rmi` ก่อน build ทุกครั้ง
-- Frontend build ใหม่ต้องตรวจสอบด้วย: `docker-compose exec -T frontend sh -c "grep -r 'keyword' /app/.next/ | wc -l"`
+- Docker cache ปัญหาบ่อย → ต้อง `--no-cache` เมื่อแก้โค้ดแล้ว build ไม่เปลี่ยน
 - Backend role ที่มีสิทธิ์แก้ไข expense: `ACCOUNTING_ROLES` (admin, manager, accounting)
+- LINE push ส่วนตัวได้ก็ต่อเมื่อ user **add OA เป็นเพื่อน** ก่อนเท่านั้น
+- `PUBLIC_URL` ใน `.env` ต้องอัปเดตทุกครั้งที่เปลี่ยน environment

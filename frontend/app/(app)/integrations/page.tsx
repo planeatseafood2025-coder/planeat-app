@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 
-interface MainLineOA { token: string; channelId: string; channelSecret: string; targetId: string }
+interface MainLineOA { token: string; channelId: string; channelSecret: string; targetId: string; basicId: string }
 interface LineLoginConfig { clientId: string; clientSecret: string; callbackUrl: string }
 interface Settings {
   mainLineOa: MainLineOA | null
@@ -121,7 +121,7 @@ export default function IntegrationsPage() {
   })
 
   // form states
-  const [lineOa, setLineOa]       = useState({ token: '', channelId: '', channelSecret: '', targetId: '' })
+  const [lineOa, setLineOa]       = useState({ token: '', channelId: '', channelSecret: '', targetId: '', basicId: '' })
   const [lineLogin, setLineLogin] = useState({ clientId: '', clientSecret: '', callbackUrl: '' })
   const [smtp, setSmtp]           = useState({ email: '', password: '', server: 'smtp.gmail.com', port: 587 })
   const [modules, setModules]     = useState({ expense: '', expenseName: '', inventory: '', inventoryName: '', crm: '', crmName: '', access: '', accessName: '' })
@@ -149,7 +149,7 @@ export default function IntegrationsPage() {
     } catch {}
 
     setSettings(s)
-    if (s.mainLineOa) setLineOa({ token: s.mainLineOa.token || '', channelId: s.mainLineOa.channelId || '', channelSecret: s.mainLineOa.channelSecret || '', targetId: s.mainLineOa.targetId || '' })
+    if (s.mainLineOa) setLineOa({ token: s.mainLineOa.token || '', channelId: s.mainLineOa.channelId || '', channelSecret: s.mainLineOa.channelSecret || '', targetId: s.mainLineOa.targetId || '', basicId: s.mainLineOa.basicId || '' })
     if (s.lineLogin)  setLineLogin({ clientId: s.lineLogin.clientId || '', clientSecret: s.lineLogin.clientSecret || '', callbackUrl: s.lineLogin.callbackUrl || '' })
     setSmtp({ email: s.smtpEmail || '', password: s.smtpPassword || '', server: s.smtpServer || 'smtp.gmail.com', port: s.smtpPort || 587 })
     if (s.moduleConnections) setModules(s.moduleConnections)
@@ -235,6 +235,16 @@ export default function IntegrationsPage() {
             </Field>
             <Field label="Channel ID">
               <input value={lineOa.channelId} onChange={e => setLineOa(p => ({ ...p, channelId: e.target.value }))} placeholder="Channel ID" className={inputCls} />
+            </Field>
+            <Field label="Basic ID (สำหรับลิงก์ Add Friend)" help="Basic ID ของ LINE OA เช่น @abc1234\nดูได้ที่ LINE Developers Console → Basic settings">
+              <input value={lineOa.basicId} onChange={e => setLineOa(p => ({ ...p, basicId: e.target.value }))} placeholder="@abc1234" className={inputCls} />
+              {lineOa.basicId && (
+                <a href={`https://line.me/R/ti/p/${lineOa.basicId}`} target="_blank" rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 text-xs text-green-600 hover:underline">
+                  <span className="material-icons text-sm">open_in_new</span>
+                  ทดสอบลิงก์ Add Friend
+                </a>
+              )}
             </Field>
             <Field label="Target ID (Group ID สำหรับ push message)" help="ID ของกลุ่ม LINE ที่จะส่งแจ้งเตือน\nได้มาอัตโนมัติเมื่อ bot เข้ากลุ่ม">
               <input value={lineOa.targetId} onChange={e => setLineOa(p => ({ ...p, targetId: e.target.value }))} placeholder="C1234..." className={inputCls} />
