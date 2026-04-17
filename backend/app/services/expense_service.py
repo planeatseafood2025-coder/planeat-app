@@ -36,32 +36,40 @@ def iso_to_thai_date(iso: str) -> str:
     return iso
 
 
+def _f(val, default: float = 0.0) -> float:
+    """แปลงค่าเป็น float อย่างปลอดภัย — รองรับ '', None, และ string ตัวเลข"""
+    try:
+        return float(val) if val not in (None, "") else default
+    except (ValueError, TypeError):
+        return default
+
+
 def calc_expense_total(category: str, row: dict) -> tuple:
     cat_key = CAT_KEY_MAP.get(category, "")
     if cat_key == "labor":
-        workers = float(row.get("workers", 0))
-        wage = float(row.get("dailyWage", 0))
-        ot = float(row.get("ot", 0))
-        total = workers * wage + ot
-        detail = f"{int(workers)} คน × {wage:.0f}฿ + OT {ot:.0f}฿"
+        workers = _f(row.get("workers"))
+        wage    = _f(row.get("dailyWage"))
+        ot      = _f(row.get("ot"))
+        total   = workers * wage + ot
+        detail  = f"{int(workers)} คน × {wage:.0f}฿ + OT {ot:.0f}฿"
         return total, detail, row.get("note", "")
     elif cat_key == "raw":
-        qty = float(row.get("quantity", 0))
-        price = float(row.get("pricePerKg", 0))
+        qty   = _f(row.get("quantity"))
+        price = _f(row.get("pricePerKg"))
         total = qty * price
-        name = row.get("itemName", "")
+        name  = row.get("itemName", "")
         detail = f"{name} {qty}กก. × {price:.2f}฿/กก."
         return total, detail, row.get("note", "")
     elif cat_key == "chem":
-        qty = float(row.get("quantity", 0))
-        price = float(row.get("price", 0))
+        qty   = _f(row.get("quantity"))
+        price = _f(row.get("price"))
         total = qty * price
-        name = row.get("itemName", "")
+        name  = row.get("itemName", "")
         detail = f"{name} {qty} × {price:.2f}฿"
         return total, detail, row.get("note", "")
     elif cat_key == "repair":
-        total = float(row.get("totalCost", 0))
-        item = row.get("repairItem", "")
+        total = _f(row.get("totalCost"))
+        item  = row.get("repairItem", "")
         return total, item, row.get("note", "")
     return 0.0, "", ""
 
