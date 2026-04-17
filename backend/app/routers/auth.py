@@ -156,14 +156,21 @@ async def line_standalone_verify(stoken: str):
         raise HTTPException(status_code=404, detail="ไม่พบผู้ใช้")
 
     cats = await get_categories_for_user(user["username"], user.get("role", ""), public_only=True)
+
+    # resolve ชื่อแสดงผล: firstName+lastName → name → lineDisplayName → username
+    first = user.get("firstName", "").strip()
+    last  = user.get("lastName", "").strip()
+    full  = f"{first} {last}".strip() or user.get("name", "").strip() or user.get("lineDisplayName", "").strip() or user["username"]
+
     return {
-        "success":    True,
-        "username":   user["username"],
-        "name":       user.get("name", ""),
-        "firstName":  user.get("firstName", ""),
-        "role":       user.get("role", ""),
-        "lineUid":    user.get("lineUid", ""),
-        "categories": cats,
+        "success":     True,
+        "username":    user["username"],
+        "name":        user.get("name", ""),
+        "firstName":   first,
+        "displayName": full,
+        "role":        user.get("role", ""),
+        "lineUid":     user.get("lineUid", ""),
+        "categories":  cats,
     }
 
 

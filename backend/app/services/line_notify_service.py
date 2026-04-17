@@ -146,6 +146,78 @@ def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: st
     }
 
 
+def _build_pending_carousel(drafts: list) -> dict:
+    """
+    สร้าง Flex Message Carousel แสดงรายการรออนุมัติทั้งหมด
+    bubble สุดท้ายเป็นปุ่ม "อนุมัติทั้งหมด"
+    drafts: list ของ expense_draft document
+    """
+    bubbles = []
+    for d in drafts[:10]:  # LINE รองรับ carousel สูงสุด 12 bubbles
+        draft_id = str(d.get("_id", ""))
+        amount   = _fmt(float(d.get("total", 0)))
+        bubbles.append({
+            "type": "bubble", "size": "kilo",
+            "header": {
+                "type": "box", "layout": "vertical",
+                "backgroundColor": "#1e3a8a", "paddingAll": "12px",
+                "contents": [{"type": "text", "text": "🔔 รอการอนุมัติ",
+                               "color": "#93c5fd", "size": "sm", "weight": "bold"}],
+            },
+            "body": {
+                "type": "box", "layout": "vertical",
+                "paddingAll": "12px", "spacing": "sm",
+                "contents": [
+                    _flex_row("ผู้กรอก", d.get("recorderName", d.get("recorder", "")), "#1e293b", bold=True),
+                    _flex_row("หมวด",    d.get("category", ""),   "#1e293b"),
+                    _flex_row("วันที่",   d.get("date", ""),        "#475569"),
+                    _flex_row("ยอด",     f"฿{amount}",             "#dc2626", bold=True),
+                ],
+            },
+            "footer": {
+                "type": "box", "layout": "horizontal",
+                "spacing": "sm", "paddingAll": "10px",
+                "contents": [
+                    {"type": "button", "style": "primary", "color": "#16a34a", "height": "sm",
+                     "action": {"type": "postback", "label": "✅ อนุมัติ",
+                                "data": f"action=approve&draft_id={draft_id}",
+                                "displayText": "✅ อนุมัติ"}},
+                    {"type": "button", "style": "primary", "color": "#dc2626", "height": "sm",
+                     "action": {"type": "postback", "label": "❌ ปฏิเสธ",
+                                "data": f"action=reject&draft_id={draft_id}",
+                                "displayText": "❌ ปฏิเสธ"}},
+                ],
+            },
+        })
+
+    # bubble สุดท้าย — อนุมัติทั้งหมด
+    bubbles.append({
+        "type": "bubble", "size": "kilo",
+        "body": {
+            "type": "box", "layout": "vertical",
+            "paddingAll": "20px", "spacing": "md",
+            "justifyContent": "center",
+            "contents": [
+                {"type": "text", "text": f"📋 รายการรออนุมัติ",
+                 "size": "sm", "color": "#475569", "align": "center"},
+                {"type": "text", "text": f"{len(drafts)} รายการ",
+                 "size": "xxl", "weight": "bold", "color": "#1e3a8a", "align": "center"},
+                {"type": "separator", "margin": "lg"},
+                {"type": "button", "style": "primary", "color": "#1e3a8a", "margin": "lg",
+                 "action": {"type": "postback", "label": "✅ อนุมัติทั้งหมด",
+                            "data": "action=approve_all",
+                            "displayText": "✅ อนุมัติทั้งหมด"}},
+            ],
+        },
+    })
+
+    return {
+        "type": "flex",
+        "altText": f"📋 รายการรออนุมัติ {len(drafts)} รายการ",
+        "contents": {"type": "carousel", "contents": bubbles},
+    }
+
+
 def _flex_row(label: str, value: str, value_color: str = "#1e293b", bold: bool = False) -> dict:
     return {
         "type": "box",

@@ -130,8 +130,8 @@ function StandaloneInner() {
         .then(r => r.json())
         .then(data => {
           if (data.success) {
-            setUserName(data.name || data.username)
-            setUserFirstName(data.firstName || data.name || data.username)
+            setUserName(data.displayName || data.name || data.username)
+            setUserFirstName(data.displayName || data.firstName || data.name || data.username)
             setSystemUsername(data.username)
             setUserLineUid(data.lineUid || '')
             const cats: ExpenseCategory[] = data.categories || []

@@ -81,6 +81,16 @@ async def save_expense(payload: dict) -> dict:
     date_str = payload.get("date", "")
     rows = payload.get("rows", [])
     cat_key = CAT_KEY_MAP.get(category, "unknown")
+
+    # resolve ชื่อจริงของผู้กรอก
+    _user = await db.users.find_one({"username": username}, {"name": 1, "firstName": 1, "lastName": 1, "_id": 0})
+    if _user:
+        _fn = _user.get("firstName", "").strip()
+        _ln = _user.get("lastName", "").strip()
+        recorder_name = f"{_fn} {_ln}".strip() or _user.get("name", "").strip() or username
+    else:
+        recorder_name = username
+
     saved_count = 0
     for row in rows:
         total, detail, note = calc_expense_total(category, row)
@@ -94,7 +104,7 @@ async def save_expense(payload: dict) -> dict:
             "catKey": cat_key,
             "amount": total,
             "recorder": username,
-            "recorderName": username,
+            "recorderName": recorder_name,
             "recorderLineId": "",
             "detail": detail,
             "note": note,
@@ -272,20 +282,21 @@ async def approve_draft(draft_id: str, current: dict) -> dict:
     db = get_db()
     username = current["sub"]
     now = datetime.now(timezone.utc)
+
+    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
+    approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
+    approver_line_id = approver.get("lineId", "") if approver else ""
+
     # Atomic claim — ป้องกัน manager หลายคนอนุมัติซ้อนกัน
     draft = await db.expense_drafts.find_one_and_update(
         {"_id": draft_id, "status": "pending"},
-        {"$set": {"status": "approved", "reviewedBy": username, "reviewedAt": now.isoformat()}},
+        {"$set": {"status": "approved", "reviewedBy": approver_name, "reviewedAt": now.isoformat()}},
     )
     if not draft:
         existing = await db.expense_drafts.find_one({"_id": draft_id})
         if not existing:
             raise ValueError("ไม่พบรายการ")
         raise ValueError("รายการนี้ดำเนินการไปแล้ว")
-
-    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
-    approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
-    approver_line_id = approver.get("lineId", "") if approver else ""
 
     category = draft["category"]
     expense_ids = []
@@ -342,19 +353,20 @@ async def reject_draft(draft_id: str, reason: str, current: dict) -> dict:
     db = get_db()
     username = current["sub"]
     now = datetime.now(timezone.utc)
+
+    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1})
+    approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
+
     # Atomic claim — ป้องกัน manager หลายคนปฏิเสธซ้อนกัน
     draft = await db.expense_drafts.find_one_and_update(
         {"_id": draft_id, "status": "pending"},
-        {"$set": {"status": "rejected", "reviewedBy": username, "reviewedAt": now.isoformat(), "rejectReason": reason}},
+        {"$set": {"status": "rejected", "reviewedBy": approver_name, "reviewedAt": now.isoformat(), "rejectReason": reason}},
     )
     if not draft:
         existing = await db.expense_drafts.find_one({"_id": draft_id})
         if not existing:
             raise ValueError("ไม่พบรายการ")
         raise ValueError("รายการนี้ดำเนินการไปแล้ว")
-
-    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1})
-    approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
 
     # Notify recorder
     await db.notifications.insert_one({
@@ -550,20 +562,21 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
     db = get_db()
     username = current["sub"]
     now = datetime.now(timezone.utc)
+
+    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
+    approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
+    approver_line_id = approver.get("lineId", "") if approver else ""
+
     # Atomic claim — ป้องกัน manager หลายคนอนุมัติซ้อนกัน
     draft = await db.expense_drafts.find_one_and_update(
         {"_id": draft_id, "status": "pending"},
-        {"$set": {"status": "approved", "reviewedBy": username, "reviewedAt": now.isoformat()}},
+        {"$set": {"status": "approved", "reviewedBy": approver_name, "reviewedAt": now.isoformat()}},
     )
     if not draft:
         existing = await db.expense_drafts.find_one({"_id": draft_id})
         if not existing:
             raise ValueError("ไม่พบรายการ")
         raise ValueError("รายการนี้ดำเนินการไปแล้ว")
-
-    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
-    approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
-    approver_line_id = approver.get("lineId", "") if approver else ""
 
     cat_id = draft["catKey"]
     cat = await get_category_by_id(cat_id)

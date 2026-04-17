@@ -293,6 +293,13 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
     draft_id = pending["draftId"]
     manager_username = pending.get("managerUsername", "")
 
+    # ดึงชื่อจริงของ manager
+    _mgr_user = await db.users.find_one({"username": manager_username}, {"name": 1, "firstName": 1, "_id": 0})
+    manager_display = (
+        (_mgr_user.get("name") or _mgr_user.get("firstName") or manager_username)
+        if _mgr_user else manager_username
+    )
+
     # ลบ pending state ของ manager คนนี้ออก
     await db.line_approval_pending.delete_one({"_id": pending["_id"]})
 
@@ -305,7 +312,7 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
         # ── อนุมัติ — Atomic claim ป้องกัน manager หลายคนกดพร้อมกัน ──────────
         draft = await db.expense_drafts.find_one_and_update(
             {"_id": draft_id, "status": "pending"},
-            {"$set": {"status": "approved", "reviewedBy": manager_username,
+            {"$set": {"status": "approved", "reviewedBy": manager_display,
                       "reviewedAt": now.isoformat()}},
         )
         if not draft:
@@ -337,7 +344,7 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
                 "note": note,
                 "rows": [row],
                 "approvedBy": manager_username,
-                "approverName": manager_username,
+                "approverName": manager_display,
                 "approvedAt": now.isoformat(),
                 "draftId": draft_id,
                 "createdAt": now.isoformat(),
@@ -390,7 +397,7 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
                 "recorderName": recorder_name,
                 "recorder":    draft["recorder"],
             }
-            await notify_expense_approved(expense_proxy, approver_username=manager_username)
+            await notify_expense_approved(expense_proxy, approver_username=manager_display)
         except Exception as _e:
             logger.warning("notify_expense_approved failed: %s", _e)
 
@@ -398,7 +405,7 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
         from ..services.line_notify_service import _push_to_uid, _fmt as _lfmt
         amount_str = _lfmt(total)
         my_card    = _build_status_card("approve", recorder_name, category, date_str, amount_str, "คุณ")
-        other_card = _build_status_card("done_by_other", recorder_name, category, date_str, amount_str, manager_username)
+        other_card = _build_status_card("done_by_other", recorder_name, category, date_str, amount_str, manager_display)
 
         await _push_to_uid(user_id, [my_card])
 
@@ -414,7 +421,7 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
         # ── ปฏิเสธ — Atomic claim ─────────────────────────────────────────────
         draft = await db.expense_drafts.find_one_and_update(
             {"_id": draft_id, "status": "pending"},
-            {"$set": {"status": "rejected", "reviewedBy": manager_username,
+            {"$set": {"status": "rejected", "reviewedBy": manager_display,
                       "reviewedAt": now.isoformat(), "rejectReason": "ปฏิเสธผ่าน LINE"}},
         )
         if not draft:
@@ -454,7 +461,7 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
         from ..services.line_notify_service import _push_to_uid, _fmt as _lfmt
         amount_str = _lfmt(total)
         my_card    = _build_status_card("reject", recorder_name, category, date_str, amount_str, "คุณ")
-        other_card = _build_status_card("done_by_other", recorder_name, category, date_str, amount_str, manager_username)
+        other_card = _build_status_card("done_by_other", recorder_name, category, date_str, amount_str, manager_display)
 
         await _push_to_uid(user_id, [my_card])
 
@@ -467,6 +474,191 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
 
     return True
 
+
+
+async def _handle_view_pending(user_id: str, reply_token: str, access_token: str) -> None:
+    """
+    แสดง carousel รายการรออนุมัติทั้งหมดที่ manager คนนี้มีสิทธิ์เห็น
+    (คือ draft ที่มี line_approval_pending ของ user_id นี้อยู่)
+    """
+    db = get_db()
+
+    # หา draft_id ทั้งหมดที่ manager คนนี้ยังมี pending อยู่
+    pendings = await db.line_approval_pending.find(
+        {"managerLineUid": user_id}
+    ).to_list(20)
+
+    if not pendings:
+        from ..services.line_notify_service import _push_to_uid
+        await _push_to_uid(user_id, [{"type": "text", "text": "✅ ไม่มีรายการรออนุมัติในขณะนี้"}])
+        return
+
+    draft_ids = list({p["draftId"] for p in pendings})
+
+    drafts = await db.expense_drafts.find(
+        {"_id": {"$in": draft_ids}, "status": "pending"}
+    ).sort("createdAt", 1).to_list(10)
+
+    if not drafts:
+        from ..services.line_notify_service import _push_to_uid
+        await _push_to_uid(user_id, [{"type": "text", "text": "✅ ไม่มีรายการรออนุมัติในขณะนี้"}])
+        return
+
+    from ..services.line_notify_service import _push_to_uid, _build_pending_carousel
+    carousel = _build_pending_carousel(drafts)
+    await _push_to_uid(user_id, [carousel])
+
+
+async def _handle_approve_all(user_id: str, reply_token: str, access_token: str) -> None:
+    """
+    อนุมัติรายการรออนุมัติทั้งหมดที่ manager คนนี้มีสิทธิ์ (atomic ทีละรายการ)
+    """
+    import uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+
+    db = get_db()
+
+    # หา manager username + ชื่อจริงจาก user_id
+    manager_user = await db.users.find_one({"lineUid": user_id}, {"username": 1, "name": 1, "firstName": 1, "_id": 0})
+    manager_username = manager_user["username"] if manager_user else user_id
+    manager_display  = (
+        (manager_user.get("name") or manager_user.get("firstName") or manager_username)
+        if manager_user else manager_username
+    )
+
+    # หา draft_id ทั้งหมดที่ manager คนนี้มี pending
+    pendings = await db.line_approval_pending.find(
+        {"managerLineUid": user_id}
+    ).to_list(50)
+
+    if not pendings:
+        from ..services.line_notify_service import _push_to_uid
+        await _push_to_uid(user_id, [{"type": "text", "text": "✅ ไม่มีรายการรออนุมัติในขณะนี้"}])
+        return
+
+    draft_ids = list({p["draftId"] for p in pendings})
+
+    approved_count = 0
+    skipped_count  = 0
+    now = _dt.now(_tz.utc)
+
+    from ..services.line_notify_service import _push_to_uid, _fmt as _lfmt
+    from ..services.expense_service import calc_expense_total
+
+    for draft_id in draft_ids:
+        # Atomic claim — ป้องกัน double-approve
+        draft = await db.expense_drafts.find_one_and_update(
+            {"_id": draft_id, "status": "pending"},
+            {"$set": {"status": "approved", "reviewedBy": manager_display,
+                      "reviewedAt": now.isoformat()}},
+        )
+        if not draft:
+            skipped_count += 1
+            continue
+
+        category     = draft.get("category", "")
+        date_str     = draft.get("date", "")
+        recorder_name = draft.get("recorderName", draft.get("recorder", ""))
+        total        = float(draft.get("total", 0))
+
+        # บันทึก expense rows
+        expense_ids = []
+        for row in draft.get("rows", []):
+            row_total, detail, note = calc_expense_total(category, row)
+            if row_total <= 0 and not detail:
+                continue
+            doc = {
+                "_id":           str(_uuid.uuid4()),
+                "date":          draft["date"],
+                "date_iso":      draft.get("date_iso", ""),
+                "category":      category,
+                "catKey":        draft.get("catKey", ""),
+                "amount":        row_total,
+                "recorder":      draft["recorder"],
+                "recorderName":  recorder_name,
+                "recorderLineId": draft.get("recorderLineId", ""),
+                "detail":        detail,
+                "note":          note,
+                "rows":          [row],
+                "approvedBy":    manager_username,
+                "approverName":  manager_display,
+                "approvedAt":    now.isoformat(),
+                "draftId":       draft_id,
+                "createdAt":     now.isoformat(),
+            }
+            await db.expenses.insert_one(doc)
+            expense_ids.append(doc["_id"])
+
+        await db.expense_drafts.update_one(
+            {"_id": draft_id},
+            {"$set": {"approvedExpenseIds": expense_ids}}
+        )
+
+        # แจ้ง recorder ใน app
+        await db.notifications.insert_one({
+            "id":               str(_uuid.uuid4()),
+            "recipientUsername": draft["recorder"],
+            "senderUsername":   manager_username,
+            "type":             "expense_approved",
+            "title":            "✅ รายการได้รับการอนุมัติ",
+            "body":             f"อนุมัติรายการ{category} วันที่ {date_str} ยอด ฿{total:,.0f} แล้ว",
+            "read":             False,
+            "createdAt":        now,
+            "data":             {"draftId": draft_id},
+        })
+
+        # แจ้ง recorder ผ่าน LINE
+        recorder_user = await db.users.find_one(
+            {"username": draft["recorder"]}, {"lineUid": 1, "lineNotifyToken": 1, "_id": 0}
+        )
+        if recorder_user:
+            msg = (f"✅ รายการของคุณได้รับการอนุมัติแล้ว\n"
+                   f"หมวด: {category}\nวันที่: {date_str}\nยอด: ฿{total:,.0f}")
+            if recorder_user.get("lineUid"):
+                await _push_to_uid(recorder_user["lineUid"], [{"type": "text", "text": msg}])
+            elif recorder_user.get("lineNotifyToken"):
+                from ..services.line_notify_service import _notify_personal
+                await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg}")
+
+        # แจ้งกลุ่ม LINE OA
+        try:
+            from ..services.line_notify_service import notify_expense_approved
+            expense_proxy = {
+                "catKey":       draft.get("catKey", ""),
+                "category":     category,
+                "amount":       total,
+                "detail":       draft.get("detail", ""),
+                "date":         date_str,
+                "date_iso":     draft.get("date_iso", ""),
+                "recorderName": recorder_name,
+                "recorder":     draft["recorder"],
+            }
+            await notify_expense_approved(expense_proxy, approver_username=manager_display)
+        except Exception as _e:
+            logger.warning("notify_expense_approved failed (approve_all): %s", _e)
+
+        # ส่ง status card ให้ manager คนอื่น
+        amount_str  = _lfmt(total)
+        other_card  = _build_status_card("done_by_other", recorder_name, category, date_str, amount_str, manager_display)
+        other_pendings = await db.line_approval_pending.find(
+            {"draftId": draft_id, "managerLineUid": {"$ne": user_id}}
+        ).to_list(20)
+        for op in other_pendings:
+            await _push_to_uid(op["managerLineUid"], [other_card])
+
+        # ลบ pending ทั้งหมดของ draft นี้
+        await db.line_approval_pending.delete_many({"draftId": draft_id})
+        approved_count += 1
+
+    # สรุปผลให้ manager ที่กด
+    summary = (
+        f"✅ อนุมัติทั้งหมดเรียบร้อย\n"
+        f"อนุมัติแล้ว: {approved_count} รายการ"
+    )
+    if skipped_count:
+        summary += f"\nข้ามไป (ดำเนินการแล้ว): {skipped_count} รายการ"
+
+    await _push_to_uid(user_id, [{"type": "text", "text": summary}])
 
 
 async def _handle_follow(event: dict, conf: dict) -> None:
@@ -640,22 +832,26 @@ async def line_webhook(
             await _handle_unfollow(event)
 
         elif event_type == "postback":
-            # ปุ่ม postback จาก Flex Message (approve/reject พร้อม draft_id)
             postback_data = event.get("postback", {}).get("data", "")
             uid = source.get("userId", "")
             rt  = event.get("replyToken", "")
             tok = conf.get("token", "")
             if postback_data and uid:
                 from urllib.parse import parse_qs
-                params    = parse_qs(postback_data)
-                action    = params.get("action", [""])[0]
-                draft_id  = params.get("draft_id", [""])[0]
+                params   = parse_qs(postback_data)
+                action   = params.get("action", [""])[0]
+                draft_id = params.get("draft_id", [""])[0]
+
                 if action == "approve" and draft_id:
                     await _handle_approval_reply(text="Y", user_id=uid, reply_token=rt,
                                                  access_token=tok, draft_id_override=draft_id)
                 elif action == "reject" and draft_id:
                     await _handle_approval_reply(text="N", user_id=uid, reply_token=rt,
                                                  access_token=tok, draft_id_override=draft_id)
+                elif action == "approve_all":
+                    await _handle_approve_all(user_id=uid, reply_token=rt, access_token=tok)
+                elif action == "view_pending":
+                    await _handle_view_pending(user_id=uid, reply_token=rt, access_token=tok)
 
         elif event_type == "message":
             msg = event.get("message", {})
@@ -668,7 +864,11 @@ async def line_webhook(
                 handled = await _handle_user_approval_reply(text=text, user_id=uid, reply_token=rt, access_token=tok)
                 if handled:
                     continue
-                # 2. ตรวจ Y/N อนุมัติค่าใช้จ่าย (fallback ไม่มี draft_id)
+                # 2. keyword "รายการ" → แสดงรายการรออนุมัติ
+                if text in ("รายการ", "ดูรายการ", "pending", "list"):
+                    await _handle_view_pending(user_id=uid, reply_token=rt, access_token=tok)
+                    continue
+                # 3. ตรวจ Y/N อนุมัติค่าใช้จ่าย (fallback ไม่มี draft_id)
                 await _handle_approval_reply(text=text, user_id=uid, reply_token=rt, access_token=tok)
 
     # อัปเดต targetId ใน config
