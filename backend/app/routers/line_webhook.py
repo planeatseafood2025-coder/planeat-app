@@ -239,26 +239,30 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
     draft_id = pending["draftId"]
     manager_username = pending.get("managerUsername", "")
 
-    # ลบ pending state ออกก่อน (ป้องกัน double-process)
+    # ลบ pending state ของ manager คนนี้ออก
     await db.line_approval_pending.delete_one({"_id": pending["_id"]})
-
-    # ดึง draft
-    draft = await db.expense_drafts.find_one({"_id": draft_id})
-    if not draft or draft.get("status") != "pending":
-        await _send_reply(reply_token, "❌ ไม่พบรายการ หรือรายการนี้ดำเนินการไปแล้ว", access_token)
-        return True
 
     import uuid as _uuid
     from datetime import datetime as _dt, timezone as _tz
 
     now = _dt.now(_tz.utc)
-    recorder_name = draft.get("recorderName", draft.get("recorder", ""))
-    category = draft.get("category", "")
-    date_str = draft.get("date", "")
-    total = float(draft.get("total", 0))
 
     if normalized in ("Y", "YES", "ใช่"):
-        # ── อนุมัติ ──────────────────────────────────────────────────────────
+        # ── อนุมัติ — Atomic claim ป้องกัน manager หลายคนกดพร้อมกัน ──────────
+        draft = await db.expense_drafts.find_one_and_update(
+            {"_id": draft_id, "status": "pending"},
+            {"$set": {"status": "approved", "reviewedBy": manager_username,
+                      "reviewedAt": now.isoformat()}},
+        )
+        if not draft:
+            await _send_reply(reply_token, "❌ ไม่พบรายการ หรือรายการนี้ดำเนินการไปแล้ว", access_token)
+            return True
+
+        recorder_name = draft.get("recorderName", draft.get("recorder", ""))
+        category = draft.get("category", "")
+        date_str = draft.get("date", "")
+        total = float(draft.get("total", 0))
+
         from ..services.expense_service import calc_expense_total
         expense_ids = []
         for row in draft.get("rows", []):
@@ -289,8 +293,7 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
 
         await db.expense_drafts.update_one(
             {"_id": draft_id},
-            {"$set": {"status": "approved", "reviewedBy": manager_username,
-                      "reviewedAt": now.isoformat(), "approvedExpenseIds": expense_ids}}
+            {"$set": {"approvedExpenseIds": expense_ids}}
         )
 
         # แจ้ง recorder ใน app
@@ -344,12 +347,20 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
         )
 
     else:
-        # ── ปฏิเสธ ───────────────────────────────────────────────────────────
-        await db.expense_drafts.update_one(
-            {"_id": draft_id},
+        # ── ปฏิเสธ — Atomic claim ─────────────────────────────────────────────
+        draft = await db.expense_drafts.find_one_and_update(
+            {"_id": draft_id, "status": "pending"},
             {"$set": {"status": "rejected", "reviewedBy": manager_username,
-                      "reviewedAt": now.isoformat(), "rejectReason": "ปฏิเสธผ่าน LINE"}}
+                      "reviewedAt": now.isoformat(), "rejectReason": "ปฏิเสธผ่าน LINE"}},
         )
+        if not draft:
+            await _send_reply(reply_token, "❌ ไม่พบรายการ หรือรายการนี้ดำเนินการไปแล้ว", access_token)
+            return True
+
+        recorder_name = draft.get("recorderName", draft.get("recorder", ""))
+        category = draft.get("category", "")
+        date_str = draft.get("date", "")
+        total = float(draft.get("total", 0))
 
         await db.notifications.insert_one({
             "id": str(_uuid.uuid4()),

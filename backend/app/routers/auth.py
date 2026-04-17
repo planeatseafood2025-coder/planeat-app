@@ -162,6 +162,7 @@ async def line_standalone_verify(stoken: str):
         "name":       user.get("name", ""),
         "firstName":  user.get("firstName", ""),
         "role":       user.get("role", ""),
+        "lineUid":    user.get("lineUid", ""),
         "categories": cats,
     }
 
@@ -252,11 +253,11 @@ async def line_login_callback(code: str, state: str):
         # มีแล้ว — ตรวจสถานะ
         if user.get("status") == "pending":
             if is_standalone:
-                return RedirectResponse(f"{public_url}/standalone?status=pending")
+                return {"status": "standalone_redirect", "redirectUrl": f"{public_url}/standalone?status=pending"}
             return {"status": "pending", "message": "บัญชีของคุณรอการอนุมัติจาก IT"}
         if user.get("status") == "suspended":
             if is_standalone:
-                return RedirectResponse(f"{public_url}/standalone?status=suspended")
+                return {"status": "standalone_redirect", "redirectUrl": f"{public_url}/standalone?status=suspended"}
             return {"status": "suspended", "message": "บัญชีถูกระงับ กรุณาติดต่อ IT"}
 
         # login สำเร็จ
@@ -271,7 +272,7 @@ async def line_login_callback(code: str, state: str):
                 "expiresAt": (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat(),
                 "createdAt": datetime.now(timezone.utc).isoformat(),
             })
-            return RedirectResponse(f"{public_url}/standalone?stoken={stoken}")
+            return {"status": "standalone_redirect", "redirectUrl": f"{public_url}/standalone?stoken={stoken}"}
 
         return {
             "status":      "success",
@@ -295,12 +296,15 @@ async def line_login_callback(code: str, state: str):
 
         if is_standalone:
             from urllib.parse import quote
-            return RedirectResponse(
-                f"{public_url}/standalone?register=true"
-                f"&tid={temp_id}"
-                f"&name={quote(display_name)}"
-                f"&pic={quote(picture_url)}"
-            )
+            return {
+                "status":      "standalone_redirect",
+                "redirectUrl": (
+                    f"{public_url}/standalone?register=true"
+                    f"&tid={temp_id}"
+                    f"&name={quote(display_name)}"
+                    f"&pic={quote(picture_url)}"
+                ),
+            }
 
         return {
             "status":      "new_user",

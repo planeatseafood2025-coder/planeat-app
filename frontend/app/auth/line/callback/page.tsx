@@ -39,7 +39,9 @@ function LineCallbackContent() {
     fetch(`${API_BASE}/api/auth/line/callback?code=${code}&state=${state}`)
       .then(r => r.json())
       .then(data => {
-        if (data.status === 'success') {
+        if (data.status === 'standalone_redirect') {
+          window.location.href = data.redirectUrl
+        } else if (data.status === 'success') {
           saveSession({
             username:    data.username,
             name:        data.name,

@@ -263,17 +263,22 @@ async def get_drafts(current: dict, status: str = "pending") -> dict:
 async def approve_draft(draft_id: str, current: dict) -> dict:
     db = get_db()
     username = current["sub"]
-    draft = await db.expense_drafts.find_one({"_id": draft_id})
+    now = datetime.now(timezone.utc)
+    # Atomic claim — ป้องกัน manager หลายคนอนุมัติซ้อนกัน
+    draft = await db.expense_drafts.find_one_and_update(
+        {"_id": draft_id, "status": "pending"},
+        {"$set": {"status": "approved", "reviewedBy": username, "reviewedAt": now.isoformat()}},
+    )
     if not draft:
-        raise ValueError("ไม่พบรายการ")
-    if draft["status"] != "pending":
+        existing = await db.expense_drafts.find_one({"_id": draft_id})
+        if not existing:
+            raise ValueError("ไม่พบรายการ")
         raise ValueError("รายการนี้ดำเนินการไปแล้ว")
 
     approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
     approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
     approver_line_id = approver.get("lineId", "") if approver else ""
 
-    now = datetime.now(timezone.utc)
     category = draft["category"]
     expense_ids = []
     for row in draft["rows"]:
@@ -303,9 +308,10 @@ async def approve_draft(draft_id: str, current: dict) -> dict:
         await db.expenses.insert_one(doc)
         expense_ids.append(doc["_id"])
 
+    # อัปเดตเฉพาะ approvedExpenseIds (status ถูก claim atomically แล้วข้างบน)
     await db.expense_drafts.update_one(
         {"_id": draft_id},
-        {"$set": {"status": "approved", "reviewedBy": username, "reviewedAt": now.isoformat(), "approvedExpenseIds": expense_ids}}
+        {"$set": {"approvedExpenseIds": expense_ids}}
     )
 
     # Notify recorder
@@ -321,30 +327,26 @@ async def approve_draft(draft_id: str, current: dict) -> dict:
         "data": {"draftId": draft_id},
     })
 
-    # [PORT] LINE Group — เตรียมไว้สำหรับเชื่อมต่อภายหลัง
-    # line_group_message = f"✅ อนุมัติแล้ว\nผู้บันทึก: {draft['recorderName']}\nหมวด: {category}\nวันที่: {draft['date']}\nยอด: ฿{draft['total']:,.0f}\nอนุมัติโดย: {approver_name}"
-    # await send_line_group(line_group_message)
-
     return {"success": True, "message": "อนุมัติสำเร็จ", "expenseIds": expense_ids}
 
 
 async def reject_draft(draft_id: str, reason: str, current: dict) -> dict:
     db = get_db()
     username = current["sub"]
-    draft = await db.expense_drafts.find_one({"_id": draft_id})
+    now = datetime.now(timezone.utc)
+    # Atomic claim — ป้องกัน manager หลายคนปฏิเสธซ้อนกัน
+    draft = await db.expense_drafts.find_one_and_update(
+        {"_id": draft_id, "status": "pending"},
+        {"$set": {"status": "rejected", "reviewedBy": username, "reviewedAt": now.isoformat(), "rejectReason": reason}},
+    )
     if not draft:
-        raise ValueError("ไม่พบรายการ")
-    if draft["status"] != "pending":
+        existing = await db.expense_drafts.find_one({"_id": draft_id})
+        if not existing:
+            raise ValueError("ไม่พบรายการ")
         raise ValueError("รายการนี้ดำเนินการไปแล้ว")
 
     approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1})
     approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
-
-    now = datetime.now(timezone.utc)
-    await db.expense_drafts.update_one(
-        {"_id": draft_id},
-        {"$set": {"status": "rejected", "reviewedBy": username, "reviewedAt": now.isoformat(), "rejectReason": reason}}
-    )
 
     # Notify recorder
     await db.notifications.insert_one({
@@ -458,9 +460,10 @@ async def submit_draft_dynamic(payload: dict, current: dict) -> dict:
 async def submit_draft_dynamic_public(payload: dict) -> dict:
     """Submit draft using dynamic category without auth (standalone page)."""
     db = get_db()
-    # For public submission, the username comes from payload, not JWT
-    recorder_name = payload.get("username", "ไม่ได้ระบุชื่อ")
-    username = recorder_name # Use as username as well
+    # For public submission, username/lineUid come from payload (verified via stoken)
+    username      = payload.get("username", "")          # system username (EMP0001 ฯลฯ)
+    recorder_name = payload.get("recorderName", "") or username or "ไม่ได้ระบุชื่อ"
+    recorder_line_uid = payload.get("recorderLineUid", "")
 
     cat_id = payload.get("catId", "")
     cat = await get_category_by_id(cat_id)
@@ -483,7 +486,7 @@ async def submit_draft_dynamic_public(payload: dict) -> dict:
         "_id": str(uuid.uuid4()),
         "recorder": username,
         "recorderName": recorder_name,
-        "recorderLineId": "",
+        "recorderLineId": recorder_line_uid,
         "date": date_str,
         "date_iso": thai_date_to_iso(date_str),
         "category": cat["name"],
@@ -524,6 +527,13 @@ async def submit_draft_dynamic_public(payload: dict) -> dict:
     if notifs:
         await db.notifications.insert_many(notifs)
 
+    # แจ้ง LINE: recorder + managers (Y/N) — เหมือนกับ authenticated path
+    try:
+        from ..services.line_notify_service import notify_draft_submitted
+        await notify_draft_submitted(draft)
+    except Exception as _e:
+        print(f"[LINE notify] draft submitted public: {_e}")
+
     return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
 
 
@@ -531,10 +541,16 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
     """Approve draft — supports both legacy and dynamic categories."""
     db = get_db()
     username = current["sub"]
-    draft = await db.expense_drafts.find_one({"_id": draft_id})
+    now = datetime.now(timezone.utc)
+    # Atomic claim — ป้องกัน manager หลายคนอนุมัติซ้อนกัน
+    draft = await db.expense_drafts.find_one_and_update(
+        {"_id": draft_id, "status": "pending"},
+        {"$set": {"status": "approved", "reviewedBy": username, "reviewedAt": now.isoformat()}},
+    )
     if not draft:
-        raise ValueError("ไม่พบรายการ")
-    if draft["status"] != "pending":
+        existing = await db.expense_drafts.find_one({"_id": draft_id})
+        if not existing:
+            raise ValueError("ไม่พบรายการ")
         raise ValueError("รายการนี้ดำเนินการไปแล้ว")
 
     approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
@@ -543,8 +559,6 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
 
     cat_id = draft["catKey"]
     cat = await get_category_by_id(cat_id)
-
-    now = datetime.now(timezone.utc)
     expense_ids = []
     for row in draft["rows"]:
         if cat:
@@ -578,9 +592,10 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
         await db.expenses.insert_one(doc)
         expense_ids.append(doc["_id"])
 
+    # อัปเดตเฉพาะ approvedExpenseIds (status ถูก claim atomically แล้วข้างบน)
     await db.expense_drafts.update_one(
         {"_id": draft_id},
-        {"$set": {"status": "approved", "reviewedBy": username, "reviewedAt": now.isoformat(), "approvedExpenseIds": expense_ids}}
+        {"$set": {"approvedExpenseIds": expense_ids}}
     )
 
     await db.notifications.insert_one({

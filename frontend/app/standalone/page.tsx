@@ -92,6 +92,8 @@ function StandaloneInner() {
   const [authState, setAuthState] = useState<'loading'|'login'|'form'|'pending'|'suspended'|'register'|'error'>('loading')
   const [userName, setUserName] = useState('')
   const [userFirstName, setUserFirstName] = useState('')
+  const [systemUsername, setSystemUsername] = useState('')
+  const [userLineUid, setUserLineUid] = useState('')
 
   // register form
   const [regFirstName, setRegFirstName] = useState('')
@@ -130,6 +132,8 @@ function StandaloneInner() {
           if (data.success) {
             setUserName(data.name || data.username)
             setUserFirstName(data.firstName || data.name || data.username)
+            setSystemUsername(data.username)
+            setUserLineUid(data.lineUid || '')
             const cats: ExpenseCategory[] = data.categories || []
             setCategories(cats)
             const init: Record<string, Record<string, string>[]> = {}
@@ -219,10 +223,12 @@ function StandaloneInner() {
     setSubmitting(cat.id)
     try {
       const res = await dynamicDraftApi.submitPublic({
-        username: userFirstName || userName,
-        catId: cat.id,
-        date: isoToThai(date),
-        rows: items
+        username:        systemUsername,
+        recorderName:    userFirstName || userName,
+        recorderLineUid: userLineUid,
+        catId:           cat.id,
+        date:            isoToThai(date),
+        rows:            items
       }) as { success: boolean; message: string }
 
       if (res.success) {
