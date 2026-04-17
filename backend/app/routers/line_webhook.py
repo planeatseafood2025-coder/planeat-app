@@ -19,6 +19,46 @@ from ..services.customer_service import (
 router = APIRouter(prefix="/api/line", tags=["line-webhook"])
 logger = logging.getLogger("planeat.line_webhook")
 
+
+def _build_status_card(action: str, recorder_name: str, category: str,
+                        date_str: str, amount: str, done_by: str) -> dict:
+    """
+    Flex Message แสดงสถานะหลังดำเนินการ
+    action: 'approve' (สีเขียว) | 'reject' (สีแดง) | 'done_by_other' (สีเทา)
+    """
+    if action == "approve":
+        header_color, icon, status_text = "#15803d", "✅", f"อนุมัติแล้วโดย {done_by}"
+    elif action == "reject":
+        header_color, icon, status_text = "#b91c1c", "❌", f"ปฏิเสธแล้วโดย {done_by}"
+    else:
+        header_color, icon, status_text = "#64748b", "🔒", f"ดำเนินการแล้วโดย {done_by}"
+
+    from ..services.line_notify_service import _flex_row
+    return {
+        "type": "flex",
+        "altText": f"{icon} {status_text} — {category} ฿{amount}",
+        "contents": {
+            "type": "bubble",
+            "size": "kilo",
+            "header": {
+                "type": "box", "layout": "vertical",
+                "backgroundColor": header_color, "paddingAll": "12px",
+                "contents": [{"type": "text", "text": f"{icon} {status_text}",
+                               "color": "#ffffff", "size": "sm", "weight": "bold"}],
+            },
+            "body": {
+                "type": "box", "layout": "vertical",
+                "paddingAll": "14px", "spacing": "sm",
+                "contents": [
+                    _flex_row("ผู้กรอก",     recorder_name, "#94a3b8"),
+                    _flex_row("หมวด",        category,      "#94a3b8"),
+                    _flex_row("วันที่",       date_str,      "#94a3b8"),
+                    _flex_row("ยอด",         f"฿{amount}",  "#94a3b8"),
+                ],
+            },
+        },
+    }
+
 SETTINGS_DOC_ID = "system_settings"
 LINE_PROFILE_URL = "https://api.line.me/v2/bot/profile/{user_id}"
 LINE_REPLY_URL   = "https://api.line.me/v2/bot/message/reply"
@@ -354,11 +394,21 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
         except Exception as _e:
             logger.warning("notify_expense_approved failed: %s", _e)
 
-        await _send_reply(
-            reply_token,
-            f"✅ อนุมัติแล้ว\nผู้กรอก: {recorder_name}\nหมวด: {category}\nวันที่: {date_str}\nยอด: ฿{total:,.0f}",
-            access_token
-        )
+        # ── ส่ง status card ให้ตัวเองและ manager คนอื่น ──────────────────────
+        from ..services.line_notify_service import _push_to_uid, _fmt as _lfmt
+        amount_str = _lfmt(total)
+        my_card    = _build_status_card("approve", recorder_name, category, date_str, amount_str, "คุณ")
+        other_card = _build_status_card("done_by_other", recorder_name, category, date_str, amount_str, manager_username)
+
+        await _push_to_uid(user_id, [my_card])
+
+        # แจ้ง manager คนอื่นที่ยังมี pending อยู่ แล้วลบ pending ทิ้ง
+        other_pendings = await db.line_approval_pending.find(
+            {"draftId": draft_id, "managerLineUid": {"$ne": user_id}}
+        ).to_list(20)
+        for op in other_pendings:
+            await _push_to_uid(op["managerLineUid"], [other_card])
+        await db.line_approval_pending.delete_many({"draftId": draft_id})
 
     else:
         # ── ปฏิเสธ — Atomic claim ─────────────────────────────────────────────
@@ -400,11 +450,20 @@ async def _handle_approval_reply(text: str, user_id: str, reply_token: str, acce
                 from ..services.line_notify_service import _notify_personal
                 await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg}")
 
-        await _send_reply(
-            reply_token,
-            f"❌ ปฏิเสธแล้ว\nผู้กรอก: {recorder_name}\nหมวด: {category}\nวันที่: {date_str}\nยอด: ฿{total:,.0f}",
-            access_token
-        )
+        # ── ส่ง status card ให้ตัวเองและ manager คนอื่น ──────────────────────
+        from ..services.line_notify_service import _push_to_uid, _fmt as _lfmt
+        amount_str = _lfmt(total)
+        my_card    = _build_status_card("reject", recorder_name, category, date_str, amount_str, "คุณ")
+        other_card = _build_status_card("done_by_other", recorder_name, category, date_str, amount_str, manager_username)
+
+        await _push_to_uid(user_id, [my_card])
+
+        other_pendings = await db.line_approval_pending.find(
+            {"draftId": draft_id, "managerLineUid": {"$ne": user_id}}
+        ).to_list(20)
+        for op in other_pendings:
+            await _push_to_uid(op["managerLineUid"], [other_card])
+        await db.line_approval_pending.delete_many({"draftId": draft_id})
 
     return True
 
