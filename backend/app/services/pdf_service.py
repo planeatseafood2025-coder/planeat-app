@@ -199,7 +199,7 @@ def generate_expense_report_pdf(report_data: dict) -> bytes:
             Paragraph(str(i + 1),               row_style),
             Paragraph(str(rec.get("date", "")), row_style),
             Paragraph(str(rec.get("detail", "")), row_style),
-            Paragraph(str(rec.get("recorder", "")), row_style),
+            Paragraph(str(rec.get("recorderName") or rec.get("recorder", "")), row_style),
             Paragraph(str(rec.get("approver", "")), row_style),
             Paragraph(_fmt(rec.get("amount", 0)), row_style_r),
         ])
@@ -463,7 +463,7 @@ def generate_history_pdf(
                     Paragraph(str(rec.get("category", "")), st_td),
                     Paragraph(str(rec.get("detail", "")), st_td),
                     Paragraph(str(rec.get("note", "")), st_td),
-                    Paragraph(str(rec.get("recorder", "")), st_td),
+                    Paragraph(str(rec.get("recorderName") or rec.get("recorder", "")), st_td),
                     Paragraph(str(rec.get("approver", "")), st_td),
                     Paragraph(_fmt(amt), ast),
                 ])
@@ -473,7 +473,7 @@ def generate_history_pdf(
                     Paragraph(str(rec.get("date", "")), st_td),
                     Paragraph(str(rec.get("detail", "")), st_td),
                     Paragraph(str(rec.get("note", "")), st_td),
-                    Paragraph(str(rec.get("recorder", "")), st_td),
+                    Paragraph(str(rec.get("recorderName") or rec.get("recorder", "")), st_td),
                     Paragraph(str(rec.get("approver", "")), st_td),
                     Paragraph(_fmt(amt), ast),
                 ])

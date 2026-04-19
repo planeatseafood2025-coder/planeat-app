@@ -12,7 +12,6 @@ import type {
   ExpenseCategory, CategoriesResponse, CategorySummary,
   BudgetResponse, CatKey,
   AnalysisResponse, ExpensesResponse, Expense,
-  ReportScheduleItem,
 } from '@/types'
 import { CAT_STYLE, ROLE_LABELS } from '@/types'
 
@@ -159,13 +158,14 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [dayFilter, setDayFilter] = useState<string | null>(null)
   const [showTable, setShowTable] = useState(false)
+  const [catSearch, setCatSearch] = useState('')
 
   const load = useCallback(async (m: string) => {
     setLoading(true)
     try {
       const mY = monthInputToApi(m)
       const [aRes, eRes, cRes] = await Promise.all([
-        analysisApi.getAnalysis(mY) as Promise<AnalysisResponse>,
+        dynamicDraftApi.getAnalysis(mY) as Promise<AnalysisResponse>,
         expenseApi.getExpenses(mY) as Promise<ExpensesResponse>,
         categoryApi.getMine() as Promise<CategoriesResponse>,
       ])
@@ -299,33 +299,56 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
             </div>
           </div>
 
-          {/* Category chips + manage button */}
-          <div className="flex gap-2 flex-wrap mb-5 items-center">
-            {cats.map(c => (
-              <button key={c.catKey}
-                onClick={() => { setCatFilter(catFilter === c.catKey ? 'all' : c.catKey); setDayFilter(null) }}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-xs font-semibold"
-                style={{
-                  background: catFilter === c.catKey ? c.color + '22' : '#fff',
-                  borderColor: catFilter === c.catKey ? c.color : '#e2e8f0',
-                  color: catFilter === c.catKey ? c.color : '#64748b',
-                  opacity: catFilter !== 'all' && catFilter !== c.catKey ? 0.5 : 1,
-                }}>
-                <span className="material-icons-round" style={{ fontSize: 14 }}>{c.icon || 'receipt_long'}</span>
-                <span>{c.label}</span>
-                <span className="font-bold">{fmt(c.total)}</span>
-              </button>
-            ))}
-            {isManager && (
-              <button onClick={onGoToCategories}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all text-xs font-semibold"
-                style={{ borderStyle: 'dashed', borderColor: '#94a3b8', color: '#64748b', background: '#fff' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#3b82f6'; (e.currentTarget as HTMLButtonElement).style.color = '#3b82f6' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#94a3b8'; (e.currentTarget as HTMLButtonElement).style.color = '#64748b' }}>
-                <span className="material-icons-round" style={{ fontSize: 14 }}>add_circle</span>
-                แก้ไขและสร้างหมวดใหม่
-              </button>
+          {/* Category chips + search + manage button */}
+          <div className="mb-5">
+            {/* Search box — แสดงเมื่อมีหมวดมากกว่า 5 */}
+            {cats.length > 5 && (
+              <div className="flex items-center gap-2 mb-3" style={{ maxWidth: 280 }}>
+                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 flex-1" style={{ boxShadow: '0 1px 3px #0001' }}>
+                  <span className="material-icons-round text-slate-400" style={{ fontSize: 15 }}>search</span>
+                  <input
+                    type="text"
+                    placeholder="ค้นหาหมวด..."
+                    value={catSearch}
+                    onChange={e => setCatSearch(e.target.value)}
+                    style={{ border: 'none', outline: 'none', fontSize: 12, background: 'transparent', flex: 1, color: '#1e293b' }}
+                  />
+                  {catSearch && (
+                    <button onClick={() => setCatSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', lineHeight: 1, fontSize: 16, padding: 0 }}>×</button>
+                  )}
+                </div>
+              </div>
             )}
+            <div className="flex gap-2 flex-wrap items-center">
+              {cats.filter(c => !catSearch || c.label.toLowerCase().includes(catSearch.toLowerCase())).map(c => (
+                <button key={c.catKey}
+                  onClick={() => { setCatFilter(catFilter === c.catKey ? 'all' : c.catKey); setDayFilter(null); setCatSearch('') }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-xs font-semibold"
+                  style={{
+                    background: catFilter === c.catKey ? c.color + '22' : '#fff',
+                    borderColor: catFilter === c.catKey ? c.color : '#e2e8f0',
+                    color: catFilter === c.catKey ? c.color : '#64748b',
+                    opacity: catFilter !== 'all' && catFilter !== c.catKey ? 0.5 : 1,
+                  }}>
+                  <span className="material-icons-round" style={{ fontSize: 14 }}>{c.icon || 'receipt_long'}</span>
+                  <span>{c.label}</span>
+                  <span className="font-bold">{fmt(c.total)}</span>
+                </button>
+              ))}
+              {catSearch && cats.filter(c => c.label.toLowerCase().includes(catSearch.toLowerCase())).length === 0 && (
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>ไม่พบหมวด "{catSearch}"</span>
+              )}
+              {isManager && (
+                <button onClick={onGoToCategories}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all text-xs font-semibold"
+                  style={{ borderStyle: 'dashed', borderColor: '#94a3b8', color: '#64748b', background: '#fff' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#3b82f6'; (e.currentTarget as HTMLButtonElement).style.color = '#3b82f6' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#94a3b8'; (e.currentTarget as HTMLButtonElement).style.color = '#64748b' }}>
+                  <span className="material-icons-round" style={{ fontSize: 14 }}>add_circle</span>
+                  แก้ไขและสร้างหมวดใหม่
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Chart + Top5 */}
@@ -832,6 +855,15 @@ function PendingTab({ user, flash }: { user: ReturnType<typeof getSession>; flas
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [processing, setProcessing] = useState<string | null>(null)
+  const [catMap, setCatMap] = useState<Record<string, { icon: string; color: string }>>({})
+
+  useEffect(() => {
+    categoryApi.getMine().then((r: any) => {
+      const map: Record<string, { icon: string; color: string }> = {}
+      ;(r.categories || []).forEach((c: ExpenseCategory) => { map[c.id] = { icon: c.icon || 'receipt_long', color: c.color || '#64748b' } })
+      setCatMap(map)
+    }).catch(() => {})
+  }, [])
 
   const loadDrafts = useCallback(async (s: string) => {
     setLoading(true)
@@ -908,7 +940,11 @@ function PendingTab({ user, flash }: { user: ReturnType<typeof getSession>; flas
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {drafts.map(d => {
-            const cs = CAT_STYLE[d.catKey as CatKey] || { bg: '#f1f5f9', color: '#64748b', icon: 'receipt_long' }
+            const dynCat = catMap[d.catKey]
+            const legacyCat = CAT_STYLE[d.catKey as CatKey]
+            const cs = dynCat
+              ? { bg: dynCat.color + '20', color: dynCat.color, icon: dynCat.icon, label: d.category }
+              : legacyCat || { bg: '#f1f5f9', color: '#64748b', icon: 'receipt_long', label: d.category }
             const st = STATUS_LABELS[d.status] || STATUS_LABELS.pending
             return (
               <div key={d.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
@@ -1212,6 +1248,49 @@ function HistoryTab() {
   const [deleteTarget, setDeleteTarget] = useState<ExpenseRecord | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // Select mode
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deletingBulk, setDeletingBulk] = useState(false)
+
+  function toggleSelect(id: string) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  function toggleSelectAll() {
+    if (selected.size === expenses.length) setSelected(new Set())
+    else setSelected(new Set(expenses.map(e => e.id)))
+  }
+  function exitSelectMode() { setSelectMode(false); setSelected(new Set()) }
+
+  async function deleteBulk() {
+    if (!selected.size) return
+    if (!confirm(`ลบ ${selected.size} รายการที่เลือก?`)) return
+    setDeletingBulk(true)
+    try {
+      await Promise.all([...selected].map(id => expenseApi.deleteExpense(id)))
+      exitSelectMode()
+      loadHistory(page, monthFilter, catFilter, search)
+    } catch {} finally { setDeletingBulk(false) }
+  }
+
+  function exportCSV() {
+    const rows = selectMode && selected.size > 0
+      ? expenses.filter(e => selected.has(e.id))
+      : expenses
+    const header = 'วันที่,หมวด,รายละเอียด,หมายเหตุ,ยอด,ผู้บันทึก,อนุมัติโดย'
+    const lines = rows.map(e =>
+      [e.date, getCatLabel(e), e.detail || '', e.note || '', e.amount, e.recorderName || e.recorder, e.approverName || '']
+        .map(v => `"${String(v).replace(/"/g, '""')}"`)
+        .join(',')
+    )
+    const csv = '\uFEFF' + header + '\n' + lines.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `expense_${monthFilter}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
 
   function isWithin3Days(e: ExpenseRecord): boolean {
     const raw = e.createdAt || e.approvedAt
@@ -1424,8 +1503,20 @@ function HistoryTab() {
             <span className="material-icons-round" style={{ fontSize: 14 }}>picture_as_pdf</span>
             พิมพ์รายงาน
           </button>
+          <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: 12 }} onClick={exportCSV}>
+            <span className="material-icons-round" style={{ fontSize: 14 }}>download</span>
+            Export CSV
+          </button>
+          <button onClick={() => { setSelectMode(v => !v); setSelected(new Set()) }}
+            style={{ padding: '7px 14px', fontSize: 12, borderRadius: 8, border: '1px solid', cursor: 'pointer', fontWeight: 600,
+              background: selectMode ? '#1e3a8a' : 'white', color: selectMode ? 'white' : '#475569', borderColor: selectMode ? '#1e3a8a' : '#e2e8f0' }}>
+            <span className="material-icons-round" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>
+              {selectMode ? 'close' : 'checklist'}
+            </span>
+            {selectMode ? 'ยกเลิก' : 'เลือก'}
+          </button>
         </div>
-        <p style={{ margin: '10px 0 0', fontSize: 12, color: '#94a3b8' }}>พบ {total.toLocaleString('th-TH')} รายการ</p>
+        <p style={{ margin: '10px 0 0', fontSize: 12, color: '#94a3b8' }}>พบ {total.toLocaleString('th-TH')} รายการ · ยอดรวมหน้านี้ ฿{expenses.reduce((s,e) => s + e.amount, 0).toLocaleString('th-TH')}</p>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -1441,6 +1532,12 @@ function HistoryTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                  {selectMode && (
+                    <th style={{ padding: '10px 12px', width: 36 }}>
+                      <input type="checkbox" checked={selected.size === expenses.length && expenses.length > 0}
+                        onChange={toggleSelectAll} style={{ cursor: 'pointer', width: 15, height: 15 }} />
+                    </th>
+                  )}
                   {['วันที่','หมวด','รายละเอียด','ยอด (฿)','ผู้บันทึก','อนุมัติโดย',''].map((h, i) => (
                     <th key={i} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
@@ -1448,9 +1545,18 @@ function HistoryTab() {
               </thead>
               <tbody>
                 {expenses.map((e, i) => {
-                  const cs = CAT_STYLE[e.catKey as CatKey]
+                  const dynCatH = categories.find(c => c.id === e.catKey)
+                  const cs = dynCatH
+                    ? { bg: dynCatH.color + '20', color: dynCatH.color }
+                    : CAT_STYLE[e.catKey as CatKey]
                   return (
-                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }} className="hover:bg-slate-50 transition-colors">
+                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', background: selected.has(e.id) ? '#eff6ff' : undefined }} className="hover:bg-slate-50 transition-colors">
+                      {selectMode && (
+                        <td style={{ padding: '10px 12px', width: 36 }}>
+                          <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)}
+                            style={{ cursor: 'pointer', width: 15, height: 15 }} />
+                        </td>
+                      )}
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', fontSize: 12 }}>{e.date}</td>
                       <td style={{ padding: '10px 12px' }}>
                         <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: cs?.bg || '#f1f5f9', color: cs?.color || '#64748b', whiteSpace: 'nowrap' }}>
@@ -1655,6 +1761,38 @@ function HistoryTab() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating action bar */}
+      {selectMode && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 49,
+          background: '#1e293b', color: 'white', borderRadius: 16, padding: '12px 20px',
+          display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.25)', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>
+            {selected.size > 0 ? `เลือกแล้ว ${selected.size} รายการ` : 'เลือกรายการที่ต้องการ'}
+          </span>
+          {selected.size > 0 && (
+            <>
+              <span style={{ opacity: 0.3 }}>|</span>
+              <button onClick={exportCSV}
+                style={{ background: '#2563eb', border: 'none', color: 'white', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="material-icons-round" style={{ fontSize: 15 }}>download</span>
+                Export CSV
+              </button>
+              {isManager && (
+                <button onClick={deleteBulk} disabled={deletingBulk}
+                  style={{ background: '#ef4444', border: 'none', color: 'white', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: deletingBulk ? 0.6 : 1 }}>
+                  <span className="material-icons-round" style={{ fontSize: 15 }}>delete</span>
+                  {deletingBulk ? 'กำลังลบ...' : 'ลบที่เลือก'}
+                </button>
+              )}
+            </>
+          )}
+          <button onClick={exitSelectMode}
+            style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>
+            <span className="material-icons-round" style={{ fontSize: 15 }}>close</span>
+          </button>
         </div>
       )}
 
@@ -1984,6 +2122,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
   const [fields, setFields] = useState<FieldDraft[]>([])
   const [allowedUsers, setAllowedUsers] = useState<string[]>([])
   const [publicAccess, setPublicAccess] = useState(false)
+  const [accessError, setAccessError] = useState(false)
 
   // User search state
   const [userSearch, setUserSearch] = useState('')
@@ -1992,16 +2131,6 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
 
   // Formula tooltip
   const [formulaTooltip, setFormulaTooltip] = useState(false)
-
-  // Notification schedule
-  const [notifDaily,      setNotifDaily]      = useState<ReportScheduleItem>({ enabled: false, hour: 8, lineOaConfigId: '', targetId: '' })
-  const [notifWeekly,     setNotifWeekly]     = useState<ReportScheduleItem>({ enabled: false, hour: 8, lineOaConfigId: '', targetId: '' })
-  const [notifWeeklyDay,  setNotifWeeklyDay]  = useState(4)
-  const [notifMonthly,    setNotifMonthly]    = useState<ReportScheduleItem>({ enabled: false, hour: 8, lineOaConfigId: '', targetId: '' })
-  const [notifMonthlyDay, setNotifMonthlyDay] = useState(1)
-  const [lineOaConfigs,   setLineOaConfigs]   = useState<Array<{ id: string; name: string; token: string }>>([])
-
-  const DAY_LABELS = ['จ','อ','พ','พฤ','ศ','ส','อา']
 
   // Preview state
   const [previewRow, setPreviewRow] = useState<Record<string, string>>({})
@@ -2054,6 +2183,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
 
   function addAllowedUser(username: string) {
     if (!allowedUsers.includes(username)) setAllowedUsers(prev => [...prev, username])
+    setAccessError(false)
     setUserSearch(''); setUserResults([])
   }
 
@@ -2061,20 +2191,9 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
     setEditingId(null)
     setName(''); setColor('#3b82f6'); setIcon('receipt_long'); setFormula('fixed'); setOrder(999)
     setFields(CATEGORY_TEMPLATES['fixed'].map(f => ({ ...f })))
-    setAllowedUsers([]); setPublicAccess(false)
+    setAllowedUsers([]); setPublicAccess(false); setAccessError(false)
     setUserSearch(''); setUserResults([])
-    const _empty = { enabled: false, hour: 8, lineOaConfigId: '', targetId: '' }
-    setNotifDaily(_empty); setNotifWeekly(_empty); setNotifWeeklyDay(4)
-    setNotifMonthly(_empty); setNotifMonthlyDay(1)
-    _loadLineOaConfigs()
     setShowModal(true)
-  }
-
-  async function _loadLineOaConfigs() {
-    try {
-      const res = await settingsApi.get() as { settings?: { lineOaConfigs?: Array<{ id: string; name: string; token: string }> } }
-      setLineOaConfigs(res.settings?.lineOaConfigs ?? [])
-    } catch { setLineOaConfigs([]) }
   }
 
   function openEdit(cat: ExpenseCategory) {
@@ -2084,15 +2203,8 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
     const users = cat.allowedUsers || []
     setAllowedUsers([...users])
     setPublicAccess(users.length === 0)
+    setAccessError(false)
     setUserSearch(''); setUserResults([])
-    const ns = cat.notificationSchedule
-    const _empty = { enabled: false, hour: 8, lineOaConfigId: '', targetId: '' }
-    setNotifDaily(ns?.daily   ? { ..._empty, ...ns.daily   } : _empty)
-    setNotifWeekly(ns?.weekly ? { ..._empty, ...ns.weekly  } : _empty)
-    setNotifWeeklyDay(ns?.weeklyDay  ?? 4)
-    setNotifMonthly(ns?.monthly ? { ..._empty, ...ns.monthly } : _empty)
-    setNotifMonthlyDay(ns?.monthlyDay ?? 1)
-    _loadLineOaConfigs()
     setShowModal(true)
   }
 
@@ -2118,14 +2230,12 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
   }
 
   async function saveCategory() {
-    if (!name.trim()) { flash('err', 'กรุณาระส่ชื่อหมวด'); return }
+    if (!name.trim()) { flash('err', 'กรุณาระบุชื่อหมวด'); return }
+    if (!publicAccess && allowedUsers.length === 0) { setAccessError(true); flash('err', 'กรุณาเลือกผู้มีสิทธิ์กรอกข้อมูลอย่างน้อย 1 คน หรือเปิด "ให้ทุกคนเข้าถึงได้"'); return }
+    setAccessError(false)
     setSaving(true)
     try {
-      const payload = { name, color, icon, formula, order, fields, allowedRoles: [], allowedUsers: publicAccess ? [] : allowedUsers,
-        notificationSchedule: {
-          daily: notifDaily, weekly: notifWeekly, weeklyDay: notifWeeklyDay,
-          monthly: notifMonthly, monthlyDay: notifMonthlyDay,
-        } }
+      const payload = { name, color, icon, formula, order, fields, allowedRoles: [], allowedUsers: publicAccess ? [] : allowedUsers }
       if (editingId) {
         await categoryApi.update(editingId, payload)
         flash('ok', 'อัปเดตหมวดสำเร็จ')
@@ -2276,7 +2386,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
               <div style={{ marginBottom: 20, padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
                 <label className="form-label" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6, color: '#3b82f6' }}>
                   <span className="material-icons-round" style={{ fontSize: 18 }}>visibility</span>
-                  ตัวอย่างฟอร์ม (ลองกรอกเพื่อทดสอบ)
+                  พรีวิวฟอร์ม
                 </label>
                 <div style={{ background: 'white', padding: 8, borderRadius: 10 }}>
                   <DynamicItemCard cat={previewCat} item={previewRow} idx={0} total={previewTotal} canDelete={false}
@@ -2286,16 +2396,32 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
               </div>
 
               {/* Permission */}
-              <div style={{ marginBottom: 20, padding: 16, background: '#f8fafc', borderRadius: 12 }}>
+              <div style={{ marginBottom: 20, padding: 16, background: accessError ? '#fef2f2' : '#f8fafc', borderRadius: 12, border: `1px solid ${accessError ? '#fca5a5' : 'transparent'}`, transition: 'all 0.2s' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <label className="form-label" style={{ margin: 0 }}>สิทธิ์การกรอกข้อมูล</label>
+                  <label className="form-label" style={{ margin: 0, color: accessError ? '#dc2626' : undefined }}>
+                    สิทธิ์การกรอกข้อมูล <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: publicAccess ? '#059669' : '#475569', fontWeight: 500 }}>
                     <input type="checkbox" checked={publicAccess}
-                      onChange={e => { setPublicAccess(e.target.checked); if (e.target.checked) setAllowedUsers([]) }}
+                      onChange={e => { setPublicAccess(e.target.checked); setAccessError(false); if (e.target.checked) setAllowedUsers([]) }}
                       style={{ accentColor: '#059669' }} />
                     ให้ทุกคนเข้าถึงได้
                   </label>
                 </div>
+                {/* Public access warning */}
+                {publicAccess && (
+                  <div style={{ marginBottom: 10, padding: '8px 12px', background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, fontSize: 12, color: '#854d0e', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span className="material-icons-round" style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>warning_amber</span>
+                    <span><strong>ทุกคนในระบบจะกรอกข้อมูลหมวดนี้ได้</strong> — ตรวจสอบให้แน่ใจก่อนบันทึก</span>
+                  </div>
+                )}
+                {/* Error hint */}
+                {accessError && (
+                  <div style={{ marginBottom: 10, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, fontSize: 12, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="material-icons-round" style={{ fontSize: 16 }}>error_outline</span>
+                    กรุณาเลือกผู้มีสิทธิ์อย่างน้อย 1 คน หรือเปิด "ให้ทุกคนเข้าถึงได้"
+                  </div>
+                )}
                 {/* Selected users chips */}
                 {!publicAccess && allowedUsers.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -2345,100 +2471,6 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
                   </div>
                 )}
               </div>
-
-              {/* LINE OA Notification Schedule */}
-              {(() => {
-                // helper: render one report type section
-                function NotifSection({
-                  label, item, onItem, extra
-                }: {
-                  label: string
-                  item: { enabled: boolean; hour: number; lineOaConfigId: string; targetId: string }
-                  onItem: (v: typeof item) => void
-                  extra?: React.ReactNode
-                }) {
-                  const active = item.enabled
-                  return (
-                    <div style={{ borderRadius: 10, border: `1px solid ${active ? '#86efac' : '#e2e8f0'}`, background: active ? '#f0fdf4' : '#fafafa', overflow: 'hidden' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: active ? '#166534' : '#374151' }}>{label}</span>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={active} onChange={e => onItem({ ...item, enabled: e.target.checked })} style={{ accentColor: '#16a34a' }} />
-                          เปิด
-                        </label>
-                      </div>
-                      {active && (
-                        <div style={{ padding: '0 14px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {extra}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <label style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>ส่งเวลา</label>
-                            <select value={item.hour} onChange={e => onItem({ ...item, hour: parseInt(e.target.value) })}
-                              className="form-input" style={{ width: 110, fontSize: 12, padding: '5px 8px' }}>
-                              {Array.from({ length: 24 }, (_, h) => (
-                                <option key={h} value={h}>{String(h).padStart(2,'0')}:00 น.</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                }
-                return (
-                  <div style={{ marginBottom: 20, padding: 14, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <span className="material-icons-round" style={{ fontSize: 18, color: '#16a34a' }}>chat_bubble_outline</span>
-                      <span className="form-label" style={{ margin: 0, color: '#166534', fontWeight: 700 }}>การแจ้งเตือน LINE OA</span>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <NotifSection label="รายวัน" item={notifDaily} onItem={setNotifDaily} />
-                      <NotifSection
-                        label="รายสัปดาห์"
-                        item={notifWeekly}
-                        onItem={setNotifWeekly}
-                        extra={
-                          <div style={{ display: 'flex', gap: 5 }}>
-                            {DAY_LABELS.map((d, i) => (
-                              <button key={i} type="button" onClick={() => setNotifWeeklyDay(i)}
-                                style={{ padding: '3px 8px', borderRadius: 14, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none',
-                                  background: notifWeeklyDay === i ? '#16a34a' : '#e2e8f0',
-                                  color: notifWeeklyDay === i ? 'white' : '#64748b' }}>
-                                {d}
-                              </button>
-                            ))}
-                          </div>
-                        }
-                      />
-                      <NotifSection
-                        label="รายเดือน"
-                        item={notifMonthly}
-                        onItem={setNotifMonthly}
-                        extra={
-                          <div style={{ marginTop: 6 }}>
-                            <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 6 }}>ส่งวันที่</label>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-                              {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
-                                <button key={d} type="button" onClick={() => setNotifMonthlyDay(d)}
-                                  style={{
-                                    padding: '5px 0', borderRadius: 6, fontSize: 12, fontWeight: notifMonthlyDay === d ? 700 : 400,
-                                    border: 'none', cursor: 'pointer',
-                                    background: notifMonthlyDay === d ? '#16a34a' : '#f1f5f9',
-                                    color: notifMonthlyDay === d ? 'white' : '#475569',
-                                  }}>
-                                  {d}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        }
-                      />
-                    </div>
-                    <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>
-                      ตั้งค่า LINE Group ID ได้ที่ <strong>IT Access → การเชื่อมต่อ → ระบบควบคุมค่าใช้จ่าย</strong>
-                    </p>
-                  </div>
-                )
-              })()}
 
               {/* Field Builder */}
               <div style={{ marginBottom: 20 }}>

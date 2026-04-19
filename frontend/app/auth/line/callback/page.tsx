@@ -17,7 +17,6 @@ function LineCallbackContent() {
   const [displayName, setDisplayName] = useState('')
   const [pictureUrl, setPictureUrl]   = useState('')
 
-  // ── ฟอร์มกรอกข้อมูลเพิ่มเติม ──
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName]   = useState('')
   const [nickname, setNickname]   = useState('')
@@ -54,8 +53,6 @@ function LineCallbackContent() {
           setTempId(data.tempId)
           setDisplayName(data.displayName || '')
           setPictureUrl(data.pictureUrl || '')
-          setFirstName('')
-          setLastName('')
           setStep('new_user')
         } else if (data.status === 'pending') {
           setStep('pending')
@@ -135,9 +132,22 @@ function LineCallbackContent() {
           {/* Pending */}
           {step === 'pending' && (
             <div className="text-center py-4">
-              <span className="material-icons text-5xl text-yellow-500">hourglass_top</span>
-              <h2 className="mt-3 font-bold text-gray-800">รอการอนุมัติ</h2>
-              <p className="mt-2 text-sm text-gray-500">ทีม IT กำลังตรวจสอบบัญชีของคุณ<br />จะได้รับการแจ้งเตือนเมื่ออนุมัติแล้ว</p>
+              <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-3">
+                <span className="material-icons text-4xl text-green-500">check_circle</span>
+              </div>
+              <h2 className="font-bold text-gray-800 text-lg">ส่งคำขอสำเร็จ! 🎉</h2>
+              <p className="mt-2 text-sm text-gray-500">ระบบได้รับข้อมูลของคุณแล้ว<br />ทีม IT กำลังตรวจสอบและจะอนุมัติเร็วๆ นี้</p>
+
+              <div className="mt-4 p-3 rounded-xl text-xs text-blue-700 bg-blue-50 border border-blue-200 text-left">
+                <span className="font-bold block mb-1">📱 ขั้นตอนต่อไป</span>
+                เมื่อ IT อนุมัติแล้ว คุณจะได้รับ<strong>แจ้งเตือนทาง LINE</strong> พร้อมลิงค์เข้าสู่ระบบทันที
+              </div>
+
+              <div className="mt-3 p-3 rounded-xl text-xs text-amber-700 bg-amber-50 border border-amber-200 text-left">
+                <span className="font-bold block mb-1">⚠️ สำคัญ</span>
+                ต้อง <strong>Add เพื่อน LINE OA</strong> ของบริษัทไว้ด้วย<br />มิฉะนั้นจะไม่ได้รับแจ้งเตือน
+              </div>
+
               <button onClick={() => router.replace('/login')}
                 className="mt-5 w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium">
                 กลับหน้า Login
@@ -171,14 +181,14 @@ function LineCallbackContent() {
                   <div>
                     <label className="text-xs font-medium text-gray-600 block mb-1">ชื่อ *</label>
                     <input value={firstName} onChange={e => setFirstName(e.target.value)}
-                      autoComplete="new-password" name="given-name-new"
+                      autoComplete="off"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                       placeholder="ชื่อจริง" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600 block mb-1">นามสกุล</label>
                     <input value={lastName} onChange={e => setLastName(e.target.value)}
-                      autoComplete="new-password" name="family-name-new"
+                      autoComplete="off"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                       placeholder="นามสกุล" />
                   </div>
@@ -186,6 +196,7 @@ function LineCallbackContent() {
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">ชื่อเล่น</label>
                   <input value={nickname} onChange={e => setNickname(e.target.value)}
+                    autoComplete="off"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                     placeholder="ชื่อเล่น (ถ้ามี)" />
                 </div>
@@ -194,11 +205,12 @@ function LineCallbackContent() {
                   <input value={jobTitle} onChange={e => setJobTitle(e.target.value)}
                     autoComplete="off"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                    placeholder="เช่น พนักงานบัญชี, วิศวกร" />
+                    placeholder="เช่น ฝ่ายขาย, บัญชี" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">เบอร์โทรศัพท์ *</label>
                   <input value={phone} onChange={e => setPhone(e.target.value)} type="tel"
+                    autoComplete="off"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                     placeholder="0812345678" />
                 </div>

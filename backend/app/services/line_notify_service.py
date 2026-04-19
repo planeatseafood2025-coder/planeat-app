@@ -19,6 +19,108 @@ def _fmt(n: float) -> str:
     return f"{n:,.2f}"
 
 
+def _build_recorder_flex(draft: dict, mode: str, approver_name: str = "", reject_reason: str = "") -> dict:
+    """
+    สร้าง Flex card แจ้งผู้กรอก
+    mode: 'submitted' | 'approved' | 'rejected'
+    """
+    cat      = draft.get("category", "")
+    date_str = draft.get("date", "")
+    total    = float(draft.get("total", draft.get("amount", 0)))
+    items    = draft.get("lineItems", [])
+
+    if mode == "submitted":
+        header_bg   = "#1e3a8a"
+        header_text = "📋 ส่งรายการสำเร็จ"
+        header_color = "#93c5fd"
+        footer_items = [{"type": "text", "text": "รอการอนุมัติจากผู้จัดการ",
+                         "size": "xs", "color": "#94a3b8", "align": "center"}]
+    elif mode == "approved":
+        header_bg   = "#15803d"
+        header_text = "✅ รายการได้รับการอนุมัติแล้ว"
+        header_color = "#bbf7d0"
+        history_url = f"{FRONTEND_URL}/expense-control?tab=history"
+        footer_items = [
+            {"type": "button", "style": "primary", "color": "#15803d", "height": "sm",
+             "action": {"type": "uri", "label": "📄 ดูประวัติ / ดาวน์โหลดเอกสาร", "uri": history_url}},
+        ]
+    else:  # rejected
+        header_bg   = "#b91c1c"
+        header_text = "❌ รายการไม่ผ่านการอนุมัติ"
+        header_color = "#fecaca"
+        footer_items = [{"type": "text", "text": "กรุณาติดต่อผู้จัดการเพื่อสอบถาม",
+                         "size": "xs", "color": "#94a3b8", "align": "center"}]
+
+    # ── body ─────────────────────────────────────────────────────────────────
+    body = [
+        _flex_row("หมวด",  cat,      "#1e293b", bold=True),
+        _flex_row("วันที่", date_str, "#475569"),
+    ]
+    if mode == "approved" and approver_name:
+        body.append(_flex_row("อนุมัติโดย", approver_name, "#15803d"))
+    if mode == "rejected" and reject_reason:
+        body.append(_flex_row("เหตุผล", reject_reason, "#b91c1c"))
+
+    # รายการ table
+    body.append({"type": "separator", "margin": "sm"})
+    body.append({
+        "type": "box", "layout": "horizontal", "margin": "xs",
+        "contents": [
+            {"type": "text", "text": "รายการ", "size": "xs", "color": "#94a3b8", "flex": 7},
+            {"type": "text", "text": "ยอด",    "size": "xs", "color": "#94a3b8", "flex": 3, "align": "end"},
+        ],
+    })
+    if items:
+        for item in items:
+            body.append({
+                "type": "box", "layout": "horizontal",
+                "contents": [
+                    {"type": "text", "text": f"• {item['detail']}", "size": "xs", "color": "#334155", "flex": 7, "wrap": True},
+                    {"type": "text", "text": f"฿{_fmt(item['amount'])}", "size": "xs", "color": "#1e293b", "flex": 3, "align": "end"},
+                ],
+            })
+    else:
+        detail = (draft.get("detail", "") or "-")[:60]
+        body.append({
+            "type": "box", "layout": "horizontal",
+            "contents": [
+                {"type": "text", "text": f"• {detail}", "size": "xs", "color": "#334155", "flex": 7, "wrap": True},
+                {"type": "text", "text": f"฿{_fmt(total)}", "size": "xs", "color": "#1e293b", "flex": 3, "align": "end"},
+            ],
+        })
+    body.append({"type": "separator", "margin": "sm"})
+    total_color = "#15803d" if mode == "approved" else ("#b91c1c" if mode == "rejected" else "#1e3a8a")
+    body.append(_flex_row("รวมทั้งหมด", f"฿{_fmt(total)}", total_color, bold=True))
+
+    alt_prefix = {"submitted": "📋 ส่งรายการสำเร็จ", "approved": "✅ อนุมัติแล้ว", "rejected": "❌ ไม่ผ่านอนุมัติ"}
+    return {
+        "type": "flex",
+        "altText": f"{alt_prefix[mode]} — {cat} ฿{_fmt(total)}",
+        "contents": {
+            "type": "bubble", "size": "giga",
+            "header": {
+                "type": "box", "layout": "vertical",
+                "backgroundColor": header_bg, "paddingAll": "14px",
+                "contents": [{"type": "text", "text": header_text,
+                               "color": header_color, "size": "sm", "weight": "bold"}],
+            },
+            "body": {"type": "box", "layout": "vertical", "paddingAll": "14px", "spacing": "sm", "contents": body},
+            "footer": {"type": "box", "layout": "vertical", "paddingAll": "10px",
+                       "spacing": "sm", "contents": footer_items},
+        },
+    }
+
+
+def _fmt_draft_items(draft: dict) -> str:
+    """แปลง lineItems เป็น string หลายบรรทัดสำหรับ text message"""
+    items = draft.get("lineItems", [])
+    if len(items) > 1:
+        lines = [f"  {i+1}. {item['detail']} — ฿{_fmt(item['amount'])}" for i, item in enumerate(items)]
+        return "รายการ:\n" + "\n".join(lines)
+    d = (items[0].get("detail", "") if items else None) or draft.get("detail", "")
+    return f"รายละเอียด: {d or '-'}"
+
+
 def _now_thai() -> str:
     now = datetime.now()
     return now.strftime("%d/%m/") + str(now.year + 543) + now.strftime(" %H:%M น.")
@@ -63,27 +165,80 @@ async def _get_users_by_role(roles: list) -> list:
     return await cursor.to_list(None)
 
 
-def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: str, detail: str) -> dict:
+def _build_approval_flex(
+    recorder_name: str, cat: str, date_str: str, amount: str, detail: str,
+    monthly_budget: float = 0, spent_month: float = 0, draft_id: str = "",
+    row_items: list = None,
+) -> dict:
     """สร้าง Flex Message Card สำหรับขออนุมัติค่าใช้จ่าย"""
+    remaining = monthly_budget - spent_month
+    remain_color = "#16a34a" if remaining >= 0 else "#dc2626"
+    remain_label = f"฿{_fmt(remaining)}" if remaining >= 0 else f"-฿{_fmt(abs(remaining))}"
+
+    budget_rows = []
+    if monthly_budget > 0:
+        budget_rows = [
+            {"type": "separator", "margin": "sm"},
+            _flex_row("งบเดือนนี้",  f"฿{_fmt(monthly_budget)}", "#64748b"),
+            _flex_row("ใช้ไปแล้ว",  f"฿{_fmt(spent_month)}",   "#475569"),
+            _flex_row("คงเหลือ",    remain_label,               remain_color, bold=True),
+        ]
+
+    # ─── body items ─────────────────────────────────────────────────────────
+    body_contents = [
+        _flex_row("ผู้กรอก", recorder_name, "#1e293b", bold=True),
+        _flex_row("หมวด",    cat,           "#1e293b"),
+        _flex_row("วันที่",   date_str,      "#475569"),
+    ]
+
+    if row_items:
+        # มี row_items → แสดงเป็น table (ทั้ง 1 รายการและหลายรายการ)
+        body_contents.append({"type": "separator", "margin": "sm"})
+        body_contents.append({
+            "type": "box", "layout": "horizontal", "margin": "xs",
+            "contents": [
+                {"type": "text", "text": "รายการ", "size": "xs", "color": "#94a3b8", "flex": 7},
+                {"type": "text", "text": "ยอด",    "size": "xs", "color": "#94a3b8", "flex": 3, "align": "end"},
+            ],
+        })
+        for item in row_items:
+            body_contents.append({
+                "type": "box", "layout": "horizontal",
+                "contents": [
+                    {"type": "text", "text": f"• {item['detail']}", "size": "xs",
+                     "color": "#334155", "flex": 7, "wrap": True},
+                    {"type": "text", "text": f"฿{_fmt(item['amount'])}", "size": "xs",
+                     "color": "#dc2626", "flex": 3, "align": "end"},
+                ],
+            })
+        body_contents.append({"type": "separator", "margin": "sm"})
+        body_contents.append(_flex_row("รวมทั้งหมด", f"฿{amount}", "#dc2626", bold=True))
+    else:
+        # fallback: ไม่มี lineItems (draft เก่า)
+        body_contents.append(_flex_row("ยอด",        f"฿{amount}",  "#dc2626", bold=True))
+        body_contents.append(_flex_row("รายละเอียด", detail or "-", "#475569"))
+
+    body_contents += [
+        *budget_rows,
+        {"type": "separator", "margin": "md"},
+        {"type": "text", "text": "อนุมัติรายการนี้ไหม?",
+         "size": "sm", "color": "#334155", "margin": "md", "weight": "bold"},
+    ]
+
     return {
         "type": "flex",
         "altText": f"🔔 รายการรอการอนุมัติ — {recorder_name} / {cat} / ฿{amount}",
         "contents": {
             "type": "bubble",
-            "size": "kilo",
+            "size": "giga",
             "header": {
                 "type": "box",
                 "layout": "vertical",
                 "backgroundColor": "#1e3a8a",
                 "paddingAll": "14px",
                 "contents": [
-                    {
-                        "type": "text",
-                        "text": "🔔 รายการรอการอนุมัติ",
-                        "color": "#93c5fd",
-                        "size": "sm",
-                        "weight": "bold",
-                    }
+                    {"type": "text", "text": "🔔 รายการรอการอนุมัติ",
+                     "color": "#93c5fd", "size": "sm", "weight": "bold"}
                 ],
             },
             "body": {
@@ -91,49 +246,51 @@ def _build_approval_flex(recorder_name: str, cat: str, date_str: str, amount: st
                 "layout": "vertical",
                 "paddingAll": "14px",
                 "spacing": "sm",
-                "contents": [
-                    _flex_row("ผู้กรอก", recorder_name, "#1e293b", bold=True),
-                    _flex_row("หมวด",    cat,           "#1e293b"),
-                    _flex_row("วันที่",   date_str,      "#475569"),
-                    _flex_row("ยอด",     f"฿{amount}",  "#dc2626", bold=True),
-                    _flex_row("รายละเอียด", detail,     "#475569"),
-                    {"type": "separator", "margin": "md"},
-                    {
-                        "type": "text",
-                        "text": "อนุมัติรายการนี้ไหม?",
-                        "size": "sm",
-                        "color": "#334155",
-                        "margin": "md",
-                        "weight": "bold",
-                    },
-                ],
+                "contents": body_contents,
             },
             "footer": {
                 "type": "box",
-                "layout": "horizontal",
+                "layout": "vertical",
                 "spacing": "sm",
                 "paddingAll": "12px",
                 "contents": [
                     {
-                        "type": "button",
-                        "style": "primary",
-                        "color": "#16a34a",
-                        "height": "sm",
-                        "action": {
-                            "type": "message",
-                            "label": "✅ อนุมัติ",
-                            "text": "Y",
-                        },
+                        "type": "box",
+                        "layout": "horizontal",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "button",
+                                "style": "primary",
+                                "color": "#16a34a",
+                                "height": "sm",
+                                "action": {
+                                    "type": "postback",
+                                    "label": "✅ อนุมัติ",
+                                    "data": f"action=approve&draft_id={draft_id}",
+                                },
+                            },
+                            {
+                                "type": "button",
+                                "style": "primary",
+                                "color": "#dc2626",
+                                "height": "sm",
+                                "action": {
+                                    "type": "postback",
+                                    "label": "❌ ปฏิเสธ",
+                                    "data": f"action=reject&draft_id={draft_id}",
+                                },
+                            },
+                        ],
                     },
                     {
                         "type": "button",
-                        "style": "primary",
-                        "color": "#dc2626",
+                        "style": "secondary",
                         "height": "sm",
                         "action": {
-                            "type": "message",
-                            "label": "❌ ปฏิเสธ",
-                            "text": "N",
+                            "type": "uri",
+                            "label": "📄 ดูประวัติ / ดาวน์โหลดเอกสาร",
+                            "uri": f"{FRONTEND_URL}/expense-control?tab=history",
                         },
                     },
                 ],
@@ -285,43 +442,63 @@ async def notify_draft_submitted(draft: dict) -> None:
     2. แจ้ง accounting_manager ส่วนตัวผ่าน lineUid พร้อมปุ่ม Y/N
     """
     db = get_db()
-    draft_id     = draft.get("_id") or draft.get("id", "")
-    recorder     = draft.get("recorder", "")
-    recorder_name = draft.get("recorderName", recorder)
-    cat          = draft.get("category", "")
-    amount       = _fmt(float(draft.get("total", draft.get("amount", 0))))
-    detail       = (draft.get("detail", "") or "")[:50]
-    date_str     = draft.get("date", "")
+    draft_id  = draft.get("_id") or draft.get("id", "")
+    recorder  = draft.get("recorder", "")
+    cat       = draft.get("category", "")
+    amount    = _fmt(float(draft.get("total", draft.get("amount", 0))))
+    detail    = (draft.get("detail", "") or "")[:50]
+    date_str  = draft.get("date", "")
 
-    # ── 1. แจ้ง recorder (ผู้กรอก) ──────────────────────────────────────────
+    # ── 1. แจ้ง recorder (ผู้กรอก) — re-query ชื่อจริงจาก DB เสมอ ──────────
     recorder_user = await db.users.find_one(
         {"username": recorder},
-        {"lineUid": 1, "lineNotifyToken": 1, "_id": 0}
+        {"lineUid": 1, "lineNotifyToken": 1, "name": 1, "firstName": 1, "lastName": 1, "_id": 0}
     )
     if recorder_user:
-        msg_recorder = (
-            f"📋 ส่งรายการสำเร็จ รอการอนุมัติ\n"
-            f"หมวด: {cat}\n"
-            f"วันที่: {date_str}\n"
-            f"ยอด: ฿{amount}\n"
-            f"รายละเอียด: {detail or '-'}\n"
-            f"ระบบจะแจ้งเมื่อผู้จัดการอนุมัติแล้ว"
-        )
-        # ส่งผ่าน LINE OA (push ไปหา lineUid ส่วนตัว)
+        _fn = recorder_user.get("firstName", "").strip()
+        _ln = recorder_user.get("lastName", "").strip()
+        recorder_name = f"{_fn} {_ln}".strip() or recorder_user.get("name", "").strip() or recorder
+    else:
+        recorder_name = draft.get("recorderName", recorder)
+    if recorder_user:
+        flex_recorder = _build_recorder_flex(draft, mode="submitted")
         if recorder_user.get("lineUid"):
-            await _push_to_uid(recorder_user["lineUid"], [{"type": "text", "text": msg_recorder}])
-        # fallback: LINE Notify ถ้าตั้งค่าไว้
+            await _push_to_uid(recorder_user["lineUid"], [flex_recorder])
         elif recorder_user.get("lineNotifyToken"):
-            await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg_recorder}")
+            # fallback text สำหรับ LINE Notify (ไม่รองรับ Flex)
+            msg_plain = (
+                f"📋 ส่งรายการสำเร็จ รอการอนุมัติ\n"
+                f"หมวด: {cat} | {date_str}\nยอด: ฿{amount}\n"
+                f"{_fmt_draft_items(draft)}"
+            )
+            await _notify_personal(recorder_user["lineNotifyToken"], f"\n{msg_plain}")
 
     # ── 2. แจ้ง accounting_manager ส่วนตัวผ่าน lineUid ─────────────────────
     managers = await db.users.find(
         {"role": {"$in": ["accounting_manager", "admin", "super_admin"]},
-         "status": "active",
-         "username": {"$ne": recorder}},
+         "status": "active"},
         {"username": 1, "firstName": 1, "lastName": 1, "nickname": 1,
          "lineUid": 1, "lineNotifyToken": 1, "_id": 0}
     ).to_list(20)
+
+    # ── คำนวณงบประมาณเดือนนี้ ────────────────────────────────────────────────
+    cat_key = draft.get("catKey", "")
+    now = datetime.now()
+    month_str = now.strftime("%Y-%m")
+    monthly_budget = 0.0
+    spent_month = 0.0
+    if cat_key:
+        try:
+            agg = await db.expenses.aggregate([
+                {"$match": {"date_iso": {"$regex": f"^{month_str}"}, "catKey": cat_key}},
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+            ]).to_list(None)
+            spent_month = agg[0]["total"] if agg else 0.0
+            my = f"{now.month:02d}/{now.year}"
+            budget_doc = await db.budgets.find_one({"monthYear": my}) or {}
+            monthly_budget = float(budget_doc.get("budgets", {}).get(cat_key, {}).get("monthly", 0))
+        except Exception:
+            pass
 
     for mgr in managers:
         line_uid = mgr.get("lineUid", "")
@@ -339,7 +516,12 @@ async def notify_draft_submitted(draft: dict) -> None:
                 "draftId": draft_id,
                 "createdAt": datetime.now().isoformat(),
             })
-            flex = _build_approval_flex(recorder_name, cat, date_str, amount, detail or "-")
+            flex = _build_approval_flex(
+                recorder_name, cat, date_str, amount, detail or "-",
+                monthly_budget=monthly_budget, spent_month=spent_month,
+                draft_id=str(draft_id),
+                row_items=draft.get("lineItems") or [],
+            )
             await _push_to_uid(line_uid, [flex])
         elif notify_token:
             # fallback LINE Notify (ไม่รองรับ Flex)

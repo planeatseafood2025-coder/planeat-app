@@ -74,6 +74,96 @@ def calc_expense_total(category: str, row: dict) -> tuple:
     return 0.0, "", ""
 
 
+# ─── Shared helpers ──────────────────────────────────────────────
+
+async def _get_user_line_info(db, username: str) -> tuple[str, str]:
+    """คืน (recorder_name, lineUid) จาก username — ใช้ร่วมกันในทุก submit path."""
+    user = await db.users.find_one(
+        {"username": username},
+        {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineUid": 1},
+    )
+    if not user:
+        return username, ""
+    fn = user.get("firstName", "").strip()
+    ln = user.get("lastName", "").strip()
+    name = f"{fn} {ln}".strip() or user.get("name", "").strip() or username
+    return name, user.get("lineUid", "")
+
+
+async def _submit_draft_internal(
+    db,
+    username: str,
+    recorder_name: str,
+    recorder_line_id: str,
+    cat_name: str,
+    cat_key: str,
+    rows: list,
+    total: float,
+    detail: str,
+    note: str,
+    date_str: str,
+    is_standalone: bool = False,
+    line_items: list = None,
+) -> dict:
+    """สร้าง draft + notify managers (in-app + LINE) — จุดเดียว ใช้ร่วมทั้ง 3 path."""
+    now = datetime.now(timezone.utc)
+    draft = {
+        "_id": str(uuid.uuid4()),
+        "recorder": username,
+        "recorderName": recorder_name,
+        "recorderLineId": recorder_line_id,
+        "date": date_str,
+        "date_iso": thai_date_to_iso(date_str),
+        "category": cat_name,
+        "catKey": cat_key,
+        "rows": rows,
+        "total": total,
+        "detail": detail,
+        "lineItems": line_items or [],
+        "note": note,
+        "status": "pending",
+        "submittedAt": now.isoformat(),
+        "reviewedBy": None,
+        "reviewedAt": None,
+        "rejectReason": "",
+        "approvedExpenseIds": [],
+    }
+    await db.expense_drafts.insert_one(draft)
+
+    # in-app notifications ให้ managers
+    admins = await db.users.find(
+        {"role": {"$in": ACCOUNTING_ROLES}, "status": "active"},
+        {"username": 1},
+    ).to_list(50)
+    title = "รายการใหม่จากพนักงาน (Standalone)" if is_standalone else "รายการใหม่รอตรวจสอบ"
+    notifs = []
+    for admin in admins:
+        if admin["username"] == username:
+            continue
+        notifs.append({
+            "id": str(uuid.uuid4()),
+            "recipientUsername": admin["username"],
+            "senderUsername": username,
+            "type": "expense_draft",
+            "title": title,
+            "body": f"{recorder_name} ส่งรายการ{cat_name} วันที่ {date_str} ยอด ฿{total:,.0f} รอการอนุมัติ",
+            "read": False,
+            "createdAt": now,
+            "data": {"draftId": draft["_id"]},
+        })
+    if notifs:
+        await db.notifications.insert_many(notifs)
+
+    # แจ้ง LINE: recorder + managers
+    try:
+        from ..services.line_notify_service import notify_draft_submitted
+        await notify_draft_submitted(draft)
+    except Exception as _e:
+        print(f"[LINE notify] draft submitted: {_e}")
+
+    return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
+
+
 async def save_expense(payload: dict) -> dict:
     db = get_db()
     username = payload.get("username", "")
@@ -83,13 +173,14 @@ async def save_expense(payload: dict) -> dict:
     cat_key = CAT_KEY_MAP.get(category, "unknown")
 
     # resolve ชื่อจริงของผู้กรอก
-    _user = await db.users.find_one({"username": username}, {"name": 1, "firstName": 1, "lastName": 1, "_id": 0})
+    _user = await db.users.find_one({"username": username}, {"name": 1, "firstName": 1, "lastName": 1, "lineUid": 1, "_id": 0})
     if _user:
         _fn = _user.get("firstName", "").strip()
         _ln = _user.get("lastName", "").strip()
         recorder_name = f"{_fn} {_ln}".strip() or _user.get("name", "").strip() or username
     else:
         recorder_name = username
+    recorder_line_id = (_user or {}).get("lineUid", "")
 
     saved_count = 0
     for row in rows:
@@ -105,7 +196,7 @@ async def save_expense(payload: dict) -> dict:
             "amount": total,
             "recorder": username,
             "recorderName": recorder_name,
-            "recorderLineId": "",
+            "recorderLineId": recorder_line_id,
             "detail": detail,
             "note": note,
             "rows": [row],
@@ -187,9 +278,7 @@ async def get_monthly_analysis(month_year: Optional[str] = None) -> dict:
 async def submit_draft(payload: dict, current: dict) -> dict:
     db = get_db()
     username = current["sub"]
-    user = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
-    recorder_name = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip() or user.get("name", username) if user else username
-    recorder_line_id = user.get("lineId", "") if user else ""
+    recorder_name, recorder_line_id = await _get_user_line_info(db, username)
 
     category = payload.get("category", "")
     date_str = payload.get("date", "")
@@ -199,66 +288,21 @@ async def submit_draft(payload: dict, current: dict) -> dict:
     total = 0.0
     details = []
     notes = []
+    line_items = []
     for row in rows:
         t, d, n = calc_expense_total(category, row)
         total += t
         if d: details.append(d)
         if n: notes.append(n)
+        if t > 0 or d:
+            line_items.append({"detail": d or n or "รายการ", "amount": t})
 
-    now = datetime.now(timezone.utc)
-    draft = {
-        "_id": str(uuid.uuid4()),
-        "recorder": username,
-        "recorderName": recorder_name,
-        "recorderLineId": recorder_line_id,
-        "date": date_str,
-        "date_iso": thai_date_to_iso(date_str),
-        "category": category,
-        "catKey": cat_key,
-        "rows": rows,
-        "total": total,
-        "detail": ", ".join(details),
-        "note": ", ".join(notes),
-        "status": "pending",
-        "submittedAt": now.isoformat(),
-        "reviewedBy": None,
-        "reviewedAt": None,
-        "rejectReason": "",
-        "approvedExpenseIds": [],
-    }
-    await db.expense_drafts.insert_one(draft)
-
-    # Notify accounting managers
-    admins = await db.users.find(
-        {"role": {"$in": ACCOUNTING_ROLES}, "status": "active"},
-        {"username": 1}
-    ).to_list(50)
-    notifs = []
-    for admin in admins:
-        if admin["username"] == username:
-            continue
-        notifs.append({
-            "id": str(uuid.uuid4()),
-            "recipientUsername": admin["username"],
-            "senderUsername": username,
-            "type": "expense_draft",
-            "title": "รายการใหม่รอตรวจสอบ",
-            "body": f"{recorder_name} ส่งรายการ{category} วันที่ {date_str} ยอด ฿{total:,.0f} รอการอนุมัติ",
-            "read": False,
-            "createdAt": now,
-            "data": {"draftId": draft["_id"]},
-        })
-    if notifs:
-        await db.notifications.insert_many(notifs)
-
-    # แจ้ง LINE: recorder + managers (Y/N)
-    try:
-        from ..services.line_notify_service import notify_draft_submitted
-        await notify_draft_submitted(draft)
-    except Exception as _e:
-        print(f"[LINE notify] draft submitted: {_e}")
-
-    return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
+    return await _submit_draft_internal(
+        db, username, recorder_name, recorder_line_id,
+        category, cat_key, rows, total,
+        ", ".join(details), ", ".join(notes), date_str,
+        line_items=line_items,
+    )
 
 
 async def get_drafts(current: dict, status: str = "pending") -> dict:
@@ -283,9 +327,9 @@ async def approve_draft(draft_id: str, current: dict) -> dict:
     username = current["sub"]
     now = datetime.now(timezone.utc)
 
-    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
+    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineUid": 1})
     approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
-    approver_line_id = approver.get("lineId", "") if approver else ""
+    approver_line_id = approver.get("lineUid", "") if approver else ""
 
     # Atomic claim — ป้องกัน manager หลายคนอนุมัติซ้อนกัน
     draft = await db.expense_drafts.find_one_and_update(
@@ -406,84 +450,36 @@ async def submit_draft_dynamic(payload: dict, current: dict) -> dict:
     if not cat:
         raise ValueError(f"ไม่พบหมวด: {cat_id}")
 
-    user = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
-    recorder_name = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip() or user.get("name", username) if user else username
-    recorder_line_id = user.get("lineId", "") if user else ""
+    recorder_name, recorder_line_id = await _get_user_line_info(db, username)
 
     date_str = payload.get("date", "")
     rows = payload.get("rows", [])
 
     total = 0.0
     details = []
+    line_items = []
     for row in rows:
         t, d = calc_total_dynamic(cat, row)
         total += t
         if d:
             details.append(d)
+        if t > 0 or d:
+            line_items.append({"detail": d or "รายการ", "amount": t})
 
-    now = datetime.now(timezone.utc)
-    draft = {
-        "_id": str(uuid.uuid4()),
-        "recorder": username,
-        "recorderName": recorder_name,
-        "recorderLineId": recorder_line_id,
-        "date": date_str,
-        "date_iso": thai_date_to_iso(date_str),
-        "category": cat["name"],
-        "catKey": cat_id,
-        "rows": rows,
-        "total": total,
-        "detail": ", ".join(details),
-        "note": payload.get("note", ""),
-        "status": "pending",
-        "submittedAt": now.isoformat(),
-        "reviewedBy": None,
-        "reviewedAt": None,
-        "rejectReason": "",
-        "approvedExpenseIds": [],
-    }
-    await db.expense_drafts.insert_one(draft)
-
-    # Notify accounting managers
-    admins = await db.users.find(
-        {"role": {"$in": ACCOUNTING_ROLES}, "status": "active"},
-        {"username": 1}
-    ).to_list(50)
-    notifs = []
-    for admin in admins:
-        if admin["username"] == username:
-            continue
-        notifs.append({
-            "id": str(uuid.uuid4()),
-            "recipientUsername": admin["username"],
-            "senderUsername": username,
-            "type": "expense_draft",
-            "title": "รายการใหม่รอตรวจสอบ",
-            "body": f"{recorder_name} ส่งรายการ{cat['name']} วันที่ {date_str} ยอด ฿{total:,.0f} รอการอนุมัติ",
-            "read": False,
-            "createdAt": now,
-            "data": {"draftId": draft["_id"]},
-        })
-    if notifs:
-        await db.notifications.insert_many(notifs)
-
-    # แจ้ง LINE: recorder + managers (Y/N)
-    try:
-        from ..services.line_notify_service import notify_draft_submitted
-        await notify_draft_submitted(draft)
-    except Exception as _e:
-        print(f"[LINE notify] draft submitted dynamic: {_e}")
-
-    return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
+    return await _submit_draft_internal(
+        db, username, recorder_name, recorder_line_id,
+        cat["name"], cat_id, rows, total,
+        ", ".join(details), payload.get("note", ""), date_str,
+        line_items=line_items,
+    )
 
 
 async def submit_draft_dynamic_public(payload: dict) -> dict:
-    """Submit draft using dynamic category without auth (standalone page)."""
+    """Submit draft without auth (standalone page) — username/lineUid มาจาก payload ที่ verify ด้วย stoken แล้ว."""
     db = get_db()
-    # For public submission, username/lineUid come from payload (verified via stoken)
-    username      = payload.get("username", "")          # system username (EMP0001 ฯลฯ)
+    username      = payload.get("username", "")
     recorder_name = payload.get("recorderName", "") or username or "ไม่ได้ระบุชื่อ"
-    recorder_line_uid = payload.get("recorderLineUid", "")
+    recorder_line_id = payload.get("recorderLineUid", "")
 
     cat_id = payload.get("catId", "")
     cat = await get_category_by_id(cat_id)
@@ -495,66 +491,22 @@ async def submit_draft_dynamic_public(payload: dict) -> dict:
 
     total = 0.0
     details = []
+    line_items = []
     for row in rows:
         t, d = calc_total_dynamic(cat, row)
         total += t
         if d:
             details.append(d)
+        if t > 0 or d:
+            line_items.append({"detail": d or "รายการ", "amount": t})
 
-    now = datetime.now(timezone.utc)
-    draft = {
-        "_id": str(uuid.uuid4()),
-        "recorder": username,
-        "recorderName": recorder_name,
-        "recorderLineId": recorder_line_uid,
-        "date": date_str,
-        "date_iso": thai_date_to_iso(date_str),
-        "category": cat["name"],
-        "catKey": cat_id,
-        "rows": rows,
-        "total": total,
-        "detail": ", ".join(details),
-        "note": payload.get("note", ""),
-        "status": "pending",
-        "submittedAt": now.isoformat(),
-        "reviewedBy": None,
-        "reviewedAt": None,
-        "rejectReason": "",
-        "approvedExpenseIds": [],
-    }
-    await db.expense_drafts.insert_one(draft)
-
-    # Notify accounting managers
-    admins = await db.users.find(
-        {"role": {"$in": ACCOUNTING_ROLES}, "status": "active"},
-        {"username": 1}
-    ).to_list(50)
-    notifs = []
-    for admin in admins:
-        if admin["username"] == username:
-            continue
-        notifs.append({
-            "id": str(uuid.uuid4()),
-            "recipientUsername": admin["username"],
-            "senderUsername": username,
-            "type": "expense_draft",
-            "title": "รายการใหม่จากพนักงาน (Standalone)",
-            "body": f"{recorder_name} ส่งรายการ{cat['name']} วันที่ {date_str} ยอด ฿{total:,.0f} รอการอนุมัติ",
-            "read": False,
-            "createdAt": now,
-            "data": {"draftId": draft["_id"]},
-        })
-    if notifs:
-        await db.notifications.insert_many(notifs)
-
-    # แจ้ง LINE: recorder + managers (Y/N) — เหมือนกับ authenticated path
-    try:
-        from ..services.line_notify_service import notify_draft_submitted
-        await notify_draft_submitted(draft)
-    except Exception as _e:
-        print(f"[LINE notify] draft submitted public: {_e}")
-
-    return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
+    return await _submit_draft_internal(
+        db, username, recorder_name, recorder_line_id,
+        cat["name"], cat_id, rows, total,
+        ", ".join(details), payload.get("note", ""), date_str,
+        is_standalone=True,
+        line_items=line_items,
+    )
 
 
 async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
@@ -563,9 +515,9 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
     username = current["sub"]
     now = datetime.now(timezone.utc)
 
-    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineId": 1})
+    approver = await db.users.find_one({"username": username}, {"_id": 0, "name": 1, "firstName": 1, "lastName": 1, "lineUid": 1})
     approver_name = f"{approver.get('firstName', '')} {approver.get('lastName', '')}".strip() or approver.get("name", username) if approver else username
-    approver_line_id = approver.get("lineId", "") if approver else ""
+    approver_line_id = approver.get("lineUid", "") if approver else ""
 
     # Atomic claim — ป้องกัน manager หลายคนอนุมัติซ้อนกัน
     draft = await db.expense_drafts.find_one_and_update(

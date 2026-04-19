@@ -11,10 +11,11 @@ from ..services.auth_service import (
 )
 from ..deps import get_current_user
 from ..database import get_db
-import httpx, secrets, logging
+import httpx, secrets, logging, os
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 from typing import Optional
+from urllib.parse import quote
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = logging.getLogger("planeat.auth")
@@ -22,14 +23,17 @@ logger = logging.getLogger("planeat.auth")
 SETTINGS_DOC_ID = "system_settings"
 LINE_TOKEN_URL   = "https://api.line.me/oauth2/v2.1/token"
 LINE_PROFILE_URL = "https://api.line.me/v2/profile"
+FRONTEND_URL     = os.environ.get("PUBLIC_URL", "http://localhost:3001").rstrip("/")
 
 
 class LineCompleteRequest(BaseModel):
     state: str
     phone: str
     firstName: str
-    lastName: str
-    username: str
+    lastName: str = ""
+    nickname: str = ""
+    jobTitle: str = ""
+    username: str = ""
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -138,6 +142,84 @@ async def line_login_start():
     return {"url": url}
 
 
+@router.get("/line/standalone-start")
+async def line_standalone_start():
+    """เริ่ม LINE Login สำหรับ standalone form (redirect browser โดยตรง)"""
+    db = get_db()
+    doc = await db.system_settings.find_one({"_id": SETTINGS_DOC_ID})
+    if not doc or not doc.get("lineLogin", {}).get("clientId"):
+        return RedirectResponse(url=f"{FRONTEND_URL}/standalone?error=no_config")
+
+    config    = doc["lineLogin"]
+    state     = secrets.token_urlsafe(16)
+
+    await db.line_login_states.insert_one({
+        "_id":        state,
+        "standalone": True,
+        "createdAt":  datetime.now(timezone.utc).isoformat(),
+        "expiresAt":  (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+    })
+
+    callback_url = config.get("callbackUrl", "")
+    client_id    = config.get("clientId", "")
+
+    url = (
+        f"https://access.line.me/oauth2/v2.1/authorize"
+        f"?response_type=code"
+        f"&client_id={client_id}"
+        f"&redirect_uri={callback_url}"
+        f"&state={state}"
+        f"&scope=profile%20openid"
+    )
+    return RedirectResponse(url=url)
+
+
+@router.get("/line/standalone-verify")
+async def line_standalone_verify(stoken: str):
+    """ตรวจ stoken และคืน user data + categories สำหรับ standalone form"""
+    db = get_db()
+    doc = await db.line_standalone_tokens.find_one({"_id": stoken})
+    if not doc:
+        return {"success": False, "reason": "token_not_found"}
+
+    expires = datetime.fromisoformat(doc["expiresAt"])
+    if datetime.now(timezone.utc) > expires:
+        await db.line_standalone_tokens.delete_one({"_id": stoken})
+        return {"success": False, "reason": "expired"}
+
+    user = await db.users.find_one({"username": doc["username"]})
+    if not user or user.get("status") != "active":
+        return {"success": False, "reason": "not_active"}
+
+    # ดึง categories ที่ user มีสิทธิ์
+    username = user["username"]
+    cat_cursor = db.expense_categories.find({"isActive": True})
+    all_cats = await cat_cursor.to_list(None)
+    allowed = []
+    for cat in all_cats:
+        pub = cat.get("publicAccess", False)
+        au  = cat.get("allowedUsers", [])
+        if pub or username in au:
+            allowed.append({
+                "id":      str(cat["_id"]),
+                "name":    cat.get("name", ""),
+                "icon":    cat.get("icon", "receipt"),
+                "color":   cat.get("color", "#64748b"),
+                "formula": cat.get("formula", "fixed"),
+                "fields":  cat.get("fields", []),
+            })
+
+    return {
+        "success":     True,
+        "username":    username,
+        "name":        user.get("name", ""),
+        "firstName":   user.get("firstName", ""),
+        "displayName": user.get("lineDisplayName") or user.get("firstName") or user.get("name", ""),
+        "lineUid":     user.get("lineUid", ""),
+        "categories":  allowed,
+    }
+
+
 @router.get("/line/callback")
 async def line_login_callback(code: str, state: str):
     """รับ code จาก LINE แล้วแลก token → ดึง profile → login/register"""
@@ -147,6 +229,7 @@ async def line_login_callback(code: str, state: str):
     state_doc = await db.line_login_states.find_one({"_id": state})
     if not state_doc:
         raise HTTPException(status_code=400, detail="Invalid state")
+    is_standalone = state_doc.get("standalone", False)
     await db.line_login_states.delete_one({"_id": state})
 
     # ดึง config
@@ -187,11 +270,26 @@ async def line_login_callback(code: str, state: str):
     if user:
         # มีแล้ว — ตรวจสถานะ
         if user.get("status") == "pending":
+            if is_standalone:
+                return {"status": "standalone_redirect", "redirectUrl": f"{FRONTEND_URL}/standalone?status=pending"}
             return {"status": "pending", "message": "บัญชีของคุณรอการอนุมัติจาก IT"}
         if user.get("status") == "suspended":
+            if is_standalone:
+                return {"status": "standalone_redirect", "redirectUrl": f"{FRONTEND_URL}/standalone?status=suspended"}
             return {"status": "suspended", "message": "บัญชีถูกระงับ กรุณาติดต่อ IT"}
 
-        # login สำเร็จ
+        if is_standalone:
+            stoken = secrets.token_urlsafe(24)
+            await db.line_standalone_tokens.insert_one({
+                "_id":       stoken,
+                "username":  user["username"],
+                "lineUid":   line_uid,
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+                "expiresAt": (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat(),
+            })
+            return {"status": "standalone_redirect", "redirectUrl": f"{FRONTEND_URL}/standalone?stoken={stoken}"}
+
+        # login สำเร็จ (regular)
         token = create_token({"sub": user["username"], "role": user["role"]})
         return {
             "status":      "success",
@@ -203,7 +301,6 @@ async def line_login_callback(code: str, state: str):
         }
     else:
         # ไม่มีในระบบ → ต้องกรอกข้อมูลเพิ่มเติม
-        # เก็บ LINE profile ชั่วคราวก่อน
         temp_id = secrets.token_urlsafe(24)
         await db.line_login_temp.insert_one({
             "_id":         temp_id,
@@ -213,6 +310,12 @@ async def line_login_callback(code: str, state: str):
             "expiresAt":   (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
             "createdAt":   datetime.now(timezone.utc).isoformat(),
         })
+        if is_standalone:
+            return {
+                "status": "standalone_redirect",
+                "redirectUrl": f"{FRONTEND_URL}/standalone?register=true&tid={temp_id}"
+                               f"&name={quote(display_name)}&pic={quote(picture_url)}",
+            }
         return {
             "status":      "new_user",
             "tempId":      temp_id,
@@ -238,9 +341,31 @@ async def line_login_complete(req: LineCompleteRequest):
 
     line_uid = temp["lineUid"]
 
-    # ตรวจ username ซ้ำ
-    if await db.users.find_one({"username": req.username.strip()}):
-        raise HTTPException(status_code=400, detail=f"Username '{req.username}' ถูกใช้แล้ว")
+    # auto-gen username
+    import re as _re
+    if req.username.strip():
+        # กรอกเอง → ทำให้เป็น ASCII-safe
+        base_clean = _re.sub(r'[^a-zA-Z0-9]', '', req.username.strip()) or "EMP"
+        auto_username = base_clean
+        suffix = 1
+        while await db.users.find_one({"username": auto_username}):
+            auto_username = f"{base_clean}{suffix}"
+            suffix += 1
+    else:
+        # ไม่กรอก → EMP + เลข 4 หลัก (EMP0001, EMP0002, ...)
+        existing = await db.users.find(
+            {"username": {"$regex": r"^EMP\d{4}$"}},
+            {"username": 1, "_id": 0}
+        ).to_list(None)
+        max_num = 0
+        for u in existing:
+            try:
+                n = int(u["username"][3:])
+                if n > max_num:
+                    max_num = n
+            except ValueError:
+                continue
+        auto_username = f"EMP{max_num + 1:04d}"
 
     # ตรวจเบอร์ซ้ำ
     if await db.users.find_one({"phone": req.phone.strip()}):
@@ -248,18 +373,18 @@ async def line_login_complete(req: LineCompleteRequest):
 
     name = f"{req.firstName.strip()} {req.lastName.strip()}".strip()
     doc = {
-        "username":      req.username.strip(),
+        "username":      auto_username,
         "password_hash": "",
         "name":          name,
         "firstName":     req.firstName.strip(),
         "lastName":      req.lastName.strip(),
-        "nickname":      "",
+        "nickname":      req.nickname.strip(),
         "phone":         req.phone.strip(),
         "email":         "",
         "lineUid":       line_uid,
         "lineDisplayName": temp.get("displayName", ""),
         "linePictureUrl":  temp.get("pictureUrl", ""),
-        "jobTitle":      "",
+        "jobTitle":      req.jobTitle.strip(),
         "role":          "general_user",
         "status":        "pending",
         "permissions":   {"labor": False, "raw": False, "chem": False, "repair": False},
@@ -273,7 +398,7 @@ async def line_login_complete(req: LineCompleteRequest):
     try:
         from ..services.line_notify_service import notify_new_member_to_admins
         await notify_new_member_to_admins(
-            username=req.username.strip(),
+            username=auto_username,
             name=name,
             phone=req.phone.strip(),
             line_uid=line_uid,
@@ -288,7 +413,7 @@ async def line_login_complete(req: LineCompleteRequest):
         await _push_to_uid(line_uid, [{"type": "text", "text": (
             f"✅ สมัครสมาชิกสำเร็จแล้ว!\n"
             f"ชื่อ: {name}\n"
-            f"Username: {req.username.strip()}\n\n"
+            f"Username: {auto_username}\n\n"
             f"⏳ บัญชีของคุณอยู่ระหว่างรอการอนุมัติจากทีม IT\n"
             f"ระบบจะแจ้งเตือนทาง LINE นี้เมื่ออนุมัติแล้ว"
         )}])
