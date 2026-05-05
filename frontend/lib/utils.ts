@@ -61,6 +61,23 @@ export function thaiLongDate(date?: Date): string {
   })
 }
 
+/** Format datetime string to readable Thai format */
+export function fmtDT(dt: string): string {
+  if (!dt) return '-'
+  const d = new Date(dt)
+  if (isNaN(d.getTime())) return dt
+  return d.toLocaleString('th-TH', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+/** Format date string dd/MM/YYYY with BE year display */
+export function fmtDate(d: string): string {
+  if (!d) return '-'
+  return d
+}
+
 /** Days in a month (month = 1-12) */
 export function getDaysInMonth(month: number, year: number): number {
   return new Date(year, month, 0).getDate()

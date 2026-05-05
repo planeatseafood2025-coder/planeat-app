@@ -4,6 +4,7 @@ import { usersApi, settingsApi } from '@/lib/api'
 import { getSession } from '@/lib/auth'
 import type { UserRecord, Role, UserStatus, SystemSettings, LineOASetting, MainLineOA, ModuleConnections } from '@/types'
 import { ROLE_LABELS, ROLE_COLORS, ADMIN_ROLES } from '@/types'
+import Modal from '@/components/ui/Modal'
 
 const ALL_ROLES: Role[] = [
   'super_admin', 'it_manager', 'it_support',
@@ -786,10 +787,9 @@ export default function ITAccessPage() {
       )}
 
       {/* ── LINE Config Modal ── */}
-      {editLineMode && editLineConfig && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 className="text-base font-bold text-slate-800 mb-4">{editLineMode === 'add' ? 'เพิ่ม LINE Connection Note' : 'แก้ไข LINE Connection Note'}</h3>
+      <Modal open={!!(editLineMode && editLineConfig)} onClose={() => setEditLineMode(false)}
+        title={editLineMode === 'add' ? 'เพิ่ม LINE Connection Note' : 'แก้ไข LINE Connection Note'} width={460}>
+        {editLineConfig && (<>
 
             <div className="mb-4">
               <label className="form-label">ชื่อ Note <span className="text-red-500">*</span></label>
@@ -853,38 +853,28 @@ export default function ITAccessPage() {
               </button>
               <button className="btn-secondary" onClick={() => setEditLineMode(false)}>ยกเลิก</button>
             </div>
-          </div>
-        </div>
-      )}
+        </>)}
+      </Modal>
 
       {/* ── User Detail + Inline Edit Modal ── */}
-      {detailUser && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
-          onClick={() => { if (!detailEditMode) { setDetailUser(null) } }}>
-          <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
-            onClick={e => e.stopPropagation()}>
-
+      <Modal open={!!detailUser} onClose={() => { if (!detailEditMode) { setDetailUser(null) } }} width={480}>
+        {detailUser && (<>
             {/* Header */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {detailUser.linePictureUrl ? (
-                  <img src={detailUser.linePictureUrl} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span className="material-icons-round" style={{ fontSize: 22, color: '#94a3b8' }}>person</span>
-                  </div>
-                )}
-                <div>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
-                    {detailUser.firstName} {detailUser.lastName}
-                    {detailUser.nickname ? <span style={{ fontWeight: 400, color: '#64748b', fontSize: 13 }}> ({detailUser.nickname})</span> : ''}
-                  </p>
-                  <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>{detailUser.username}</p>
+            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+              {detailUser.linePictureUrl ? (
+                <img src={detailUser.linePictureUrl} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
+              ) : (
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-icons-round" style={{ fontSize: 22, color: '#94a3b8' }}>person</span>
                 </div>
+              )}
+              <div>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                  {detailUser.firstName} {detailUser.lastName}
+                  {detailUser.nickname ? <span style={{ fontWeight: 400, color: '#64748b', fontSize: 13 }}> ({detailUser.nickname})</span> : ''}
+                </p>
+                <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>{detailUser.username}</p>
               </div>
-              <button onClick={() => { setDetailUser(null); setDetailEditMode(false) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
-                <span className="material-icons-round" style={{ fontSize: 20 }}>close</span>
-              </button>
             </div>
 
             {/* Body — VIEW mode */}
@@ -1012,7 +1002,7 @@ export default function ITAccessPage() {
 
             {/* Footer */}
             {canManage && (
-              <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8, flexShrink: 0 }}>
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
                 {!detailEditMode ? (
                   <>
                     <button onClick={() => openDetailEdit(detailUser)}
@@ -1036,38 +1026,32 @@ export default function ITAccessPage() {
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
+        </>)}
+      </Modal>
 
       {/* ── Delete User Confirm Modal ── */}
-      {deleteTarget && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <div className="flex items-center gap-3 mb-3">
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <span className="material-icons-round" style={{ fontSize: 20, color: '#dc2626' }}>warning</span>
-              </div>
-              <h3 className="text-base font-bold text-slate-800">ยืนยันการลบ</h3>
-            </div>
-            <p className="text-sm text-slate-600 mb-5">
-              ต้องการลบผู้ใช้ <strong>{deleteTarget}</strong> ออกจากระบบ?<br />
-              <span className="text-red-500">การดำเนินการนี้ไม่สามารถเรียกคืนได้</span>
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleDelete(deleteTarget)} disabled={deleting}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#dc2626', color: 'white', border: 'none', cursor: deleting ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 13 }}>
-                {deleting ? 'กำลังลบ...' : 'ยืนยันลบ'}
-              </button>
-              <button onClick={() => setDeleteTarget(null)} disabled={deleting}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#f1f5f9', color: '#374151', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
-                ยกเลิก
-              </button>
-            </div>
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} width={360}>
+        <div className="flex items-center gap-3 mb-3">
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <span className="material-icons-round" style={{ fontSize: 20, color: '#dc2626' }}>warning</span>
           </div>
+          <h3 className="text-base font-bold text-slate-800">ยืนยันการลบ</h3>
         </div>
-      )}
+        <p className="text-sm text-slate-600 mb-5">
+          ต้องการลบผู้ใช้ <strong>{deleteTarget}</strong> ออกจากระบบ?<br />
+          <span className="text-red-500">การดำเนินการนี้ไม่สามารถเรียกคืนได้</span>
+        </p>
+        <div className="flex gap-2">
+          <button onClick={() => deleteTarget && handleDelete(deleteTarget)} disabled={deleting}
+            style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#dc2626', color: 'white', border: 'none', cursor: deleting ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 13 }}>
+            {deleting ? 'กำลังลบ...' : 'ยืนยันลบ'}
+          </button>
+          <button onClick={() => setDeleteTarget(null)} disabled={deleting}
+            style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#f1f5f9', color: '#374151', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+            ยกเลิก
+          </button>
+        </div>
+      </Modal>
     </div>
   )
 }

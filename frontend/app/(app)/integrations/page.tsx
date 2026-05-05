@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { getSession } from '@/lib/auth'
+import ToggleSwitch from '@/components/ui/ToggleSwitch'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 
@@ -473,10 +474,7 @@ export default function IntegrationsPage() {
 
             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
               <span className="text-sm font-medium text-gray-700">เปิดใช้งานการแจ้งเตือน</span>
-              <button onClick={() => setNotif(p => ({ ...p, enabled: !p.enabled }))}
-                className={`w-11 h-6 rounded-full transition-colors ${notif.enabled ? 'bg-blue-600' : 'bg-gray-300'}`}>
-                <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5 ${notif.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
+              <ToggleSwitch checked={notif.enabled} onChange={v => setNotif(p => ({ ...p, enabled: v }))} />
             </div>
 
             <Field label="ข้อความแจ้งเตือนล่วงหน้า 30 วัน">
