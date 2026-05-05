@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { categoryApi, dynamicDraftApi, budgetApi } from '@/lib/api'
 import { fmt, todayIso, isoToThai, monthInputToApi, todayMonth } from '@/lib/utils'
@@ -26,6 +26,109 @@ function calcTotalDynamic(cat: ExpenseCategory, row: Record<string, string>): nu
   return fixed || (qty * price + addend)
 }
 
+const QUICK_UNITS = ['ถุง', 'กก.', 'กล่อง', 'ลัง', 'ม้วน', 'ใบ', 'ชิ้น', 'ลิตร', 'กระสอบ', 'ถัง', 'แพ็ค', 'แกลลอน']
+
+function suggestUnit(name: string): string {
+  const n = name.toLowerCase()
+  if (/น้ำตาล|แป้ง|เกลือ|ข้าว/.test(n)) return 'กระสอบ'
+  if (/ฟิล์ม|ผ้า|กระดาษ/.test(n)) return 'ม้วน'
+  if (/น้ำ|น้ำมัน|สารเคมี|ออกซิเจน|กรด|สาร/.test(n)) return 'ลิตร'
+  if (/ยา|เม็ด|แคปซูล/.test(n)) return 'เม็ด'
+  if (/ถุง/.test(n)) return 'ถุง'
+  if (/กล่อง/.test(n)) return 'กล่อง'
+  if (/ลัง/.test(n)) return 'ลัง'
+  if (/คน|แรงงาน|ช่าง/.test(n)) return 'คน'
+  return ''
+}
+
+async function getHistory(catId: string, fieldId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${API}/api/field-history?catId=${encodeURIComponent(catId)}&fieldId=${encodeURIComponent(fieldId)}`, { credentials: 'include' })
+    const data = await res.json()
+    return data.items || []
+  } catch { return [] }
+}
+async function saveHistory(catId: string, fieldId: string, value: string) {
+  if (!value.trim()) return
+  try {
+    await fetch(`${API}/api/field-history`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ catId, fieldId, value }) })
+  } catch {}
+}
+async function deleteHistory(catId: string, fieldId: string, value: string) {
+  try {
+    await fetch(`${API}/api/field-history?catId=${encodeURIComponent(catId)}&fieldId=${encodeURIComponent(fieldId)}&value=${encodeURIComponent(value)}`, { method: 'DELETE', credentials: 'include' })
+  } catch {}
+}
+
+function AutocompleteInput({ catId, fieldId, value, placeholder, onChange }: {
+  catId: string; fieldId: string; value: string; placeholder?: string; onChange: (v: string) => void
+}) {
+  const [show, setShow] = useState(false)
+  const [history, setHistory] = useState<string[]>([])
+  const [saved, setSaved] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const refreshHistory = () => { getHistory(catId, fieldId).then(setHistory) }
+  useEffect(() => { refreshHistory() }, [catId, fieldId])
+  useEffect(() => { setSaved(history.includes(value.trim())) }, [value, history])
+
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setShow(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = value.trim()
+    ? history.filter(h => h.toLowerCase().includes(value.toLowerCase()))
+    : history
+
+  function handleBookmark() {
+    if (!value.trim()) return
+    saveHistory(catId, fieldId, value.trim()).then(refreshHistory)
+    setSaved(true)
+  }
+
+  function removeItem(v: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    deleteHistory(catId, fieldId, v).then(refreshHistory)
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input className="form-input" placeholder={placeholder} value={value}
+        onChange={e => { onChange(e.target.value); setSaved(false) }}
+        onFocus={() => setShow(true)}
+      />
+      {show && (filtered.length > 0 || (value.trim() && !saved)) && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,.1)', zIndex: 50, maxHeight: 200, overflowY: 'auto' }}>
+          {filtered.map(h => (
+            <div key={h} style={{ display: 'flex', alignItems: 'center', padding: '7px 10px', cursor: 'pointer', gap: 6 }}
+              onMouseDown={e => { e.preventDefault(); onChange(h); setSaved(true); setShow(false) }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+              <span className="material-icons-round" style={{ fontSize: 13, color: '#94a3b8' }}>history</span>
+              <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>{h}</span>
+              <button type="button" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '0 2px', lineHeight: 1 }}
+                onMouseDown={e => removeItem(h, e)}>
+                <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>
+              </button>
+            </div>
+          ))}
+          {value.trim() && !saved && (
+            <div onMouseDown={e => { e.preventDefault(); handleBookmark(); setShow(false) }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', cursor: 'pointer', borderTop: filtered.length > 0 ? '1px solid #f1f5f9' : 'none', background: '#f7fef9' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#f0fdf4')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#f7fef9')}>
+              <span className="material-icons-round" style={{ fontSize: 14, color: '#16a34a' }}>add</span>
+              <span style={{ fontSize: 13, color: '#16a34a', fontWeight: 600 }}>บันทึกรายการใหม่</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DynamicItemCard({ cat, item, idx, total, canDelete, onChange, onDelete }: {
   cat: ExpenseCategory; item: Record<string, string>; idx: number; total: number
   canDelete: boolean; onChange: (fId: string, v: string) => void; onDelete: () => void
@@ -42,28 +145,45 @@ function DynamicItemCard({ cat, item, idx, total, canDelete, onChange, onDelete 
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-2">
-        {cat.fields.filter(f => f.calcRole !== 'note').map(f => (
-          <div key={f.fieldId}>
-            <label className="form-label">{f.label}{f.unit ? ` (${f.unit})` : ''}{f.required && <span className="text-red-500"> *</span>}</label>
-            {f.type === 'select' ? (
-              <select className="form-input" value={item[f.fieldId] || ''} onChange={e => onChange(f.fieldId, e.target.value)}>
-                <option value="">เลือก...</option>
-                {f.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            ) : (
-              <input type={f.type} className="form-input" placeholder={f.placeholder}
-                value={item[f.fieldId] || ''} onChange={e => onChange(f.fieldId, e.target.value)} />
-            )}
-          </div>
-        ))}
+        {cat.fields.filter(f => f.calcRole !== 'note').map(f => {
+          const unitKey = `__unit_${f.fieldId}`
+          const curUnit = item[unitKey] || ''
+          const nameHint = suggestUnit(item[f.fieldId] || '')
+          return (
+            <div key={f.fieldId}>
+              <label className="form-label">
+                {f.label}
+                {f.unit && f.unit !== '__user__' ? ` (${f.unit})` : ''}
+                {f.required && <span className="text-red-500"> *</span>}
+              </label>
+              {f.type === 'select' ? (
+                <select className="form-input" value={item[f.fieldId] || ''} onChange={e => onChange(f.fieldId, e.target.value)}>
+                  <option value="">เลือก...</option>
+                  {f.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : f.type === 'text' ? (
+                <AutocompleteInput catId={cat.id} fieldId={f.fieldId} value={item[f.fieldId] || ''} placeholder={f.placeholder} onChange={v => onChange(f.fieldId, v)} />
+              ) : (
+                <input type={f.type} className="form-input" placeholder={f.placeholder}
+                  value={item[f.fieldId] || ''} onChange={e => onChange(f.fieldId, e.target.value)} />
+              )}
+              {f.unit === '__user__' && (
+                <div style={{ marginTop: 4 }}>
+                  <AutocompleteInput catId={cat.id} fieldId={unitKey} value={curUnit}
+                    placeholder={nameHint ? `แนะนำ: ${nameHint}` : 'หน่วย เช่น ถุง, กก.'}
+                    onChange={v => onChange(unitKey, v)} />
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 gap-3 mt-3">
         {cat.fields.filter(f => f.calcRole === 'note').map(f => (
           <div key={f.fieldId}>
             <label className="form-label">{f.label}</label>
-            <input type="text" className="form-input" placeholder={f.placeholder}
-              value={item[f.fieldId] || ''} onChange={e => onChange(f.fieldId, e.target.value)} />
+            <AutocompleteInput catId={cat.id} fieldId={f.fieldId} value={item[f.fieldId] || ''} placeholder={f.placeholder} onChange={v => onChange(f.fieldId, v)} />
           </div>
         ))}
       </div>
@@ -438,11 +558,18 @@ function StandaloneInner() {
           const isOpen = openPanel === cat.id
           const items = panels[cat.id] || []
 
-          // คำนวณยอดร่าง (preview) real-time ตามที่กรอกแบบฟอร์ม
           const draftTotal = items.reduce((sum, item) => sum + calcTotalDynamic(cat, item), 0)
           const previewSpentMonth = (budgetEntry?.spentMonth || 0) + draftTotal
           const previewRemain = (budgetEntry?.monthlyBudget || 0) - previewSpentMonth
           const remainColor = previewRemain < 0 ? 'text-red-500' : previewSpentMonth / (budgetEntry?.monthlyBudget || 1) >= 0.8 ? 'text-amber-500' : 'text-green-600'
+
+          // งบสะสมถึงวันนี้
+          const _now = new Date()
+          const _todayNum = _now.getDate()
+          const _daysInMo = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate()
+          const _dailyRate = budgetEntry?.dailyRate || (budgetEntry?.monthlyBudget ? budgetEntry.monthlyBudget / _daysInMo : 0)
+          const _accumulated = budgetEntry?.monthlyBudget ? Math.min(_dailyRate * _todayNum, budgetEntry.monthlyBudget) : 0
+          const _accBalance = _accumulated - previewSpentMonth
 
           return (
             <div key={cat.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-4 overflow-hidden">
@@ -452,11 +579,19 @@ function StandaloneInner() {
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: cat.color + '20' }}>
                     <span className="material-icons-round" style={{ fontSize: 18, color: cat.color }}>{cat.icon || 'receipt'}</span>
                   </div>
-                  <p className="text-sm font-bold text-slate-800">{cat.name}</p>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-slate-800">{cat.name}</p>
+                    {budgetEntry?.monthlyBudget > 0 && (
+                      <p className="text-xs" style={{ color: _accBalance < 0 ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
+                        งบสะสมวันนี้ {_accBalance < 0 ? `-${fmt(Math.abs(_accBalance))}` : `+${fmt(_accBalance)}`} ฿
+                        <span style={{ color: '#94a3b8', fontWeight: 400 }}> · +{fmt(_dailyRate)}/วัน</span>
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   {budgetEntry?.monthlyBudget > 0 && (
-                    <div className="text-right hidden sm:block">
+                    <div className="text-right">
                       <p className="text-xs text-slate-400">งบคงเหลือ/เดือน</p>
                       <p className={`text-xs font-bold ${remainColor}`}>{fmt(previewRemain)}</p>
                     </div>

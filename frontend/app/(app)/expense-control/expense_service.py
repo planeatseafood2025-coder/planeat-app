@@ -8,29 +8,6 @@ from typing import Optional
 from ..database import get_db
 from .category_service import get_category_by_id, calc_total_dynamic
 
-def format_readable_detail(detail: str, rows: list, cat_fields: list) -> str:
-    """แปลง detail สูตร เป็นข้อความอ่านง่ายโดยใช้ field labels"""
-    if not rows or not cat_fields:
-        return detail
-    row = rows[0] if rows else {}
-    parts = []
-    for f in cat_fields:
-        if f.get("calcRole") == "note":
-            continue
-        val = row.get(f.get("fieldId", ""), "")
-        if not val and val != 0:
-            continue
-        unit = f.get("unit", "")
-        label = f.get("label", "").strip()
-        try:
-            num = float(val)
-            display = f"{num:,.2f}".rstrip("0").rstrip(".") + (f" {unit}" if unit else "")
-        except (ValueError, TypeError):
-            display = f"{val}{(' ' + unit) if unit else ''}"
-        parts.append(f"{label}: {display}")
-    return " · ".join(parts) if parts else detail
-
-
 CAT_KEY_MAP = {
     "ค่าแรงงาน":                     "labor",
     "ค่าวัตถุดิบ":                    "raw",
@@ -44,15 +21,10 @@ ACCOUNTING_ROLES = ["accounting_manager", "accountant", "super_admin", "it_manag
 
 
 def thai_date_to_iso(date_str: str) -> str:
-    """Convert dd/MM/YYYY to YYYY-MM-DD (CE). Accepts both BE (2569) and CE (2026)."""
+    """Convert dd/MM/yyyy to YYYY-MM-DD"""
     parts = date_str.split("/")
     if len(parts) == 3:
-        try:
-            year = int(parts[2])
-            ce_year = year - 543 if year > 2500 else year
-            return f"{ce_year:04d}-{parts[1]}-{parts[0]}"
-        except ValueError:
-            return date_str
+        return f"{parts[2]}-{parts[1]}-{parts[0]}"
     return date_str
 
 
@@ -182,26 +154,12 @@ async def _submit_draft_internal(
     if notifs:
         await db.notifications.insert_many(notifs)
 
-    # ── ตรวจสอบ auto-approve setting ─────────────────────────────────────────
-    es_doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
-    es = es_doc.get("expenseSettings", {})
-    auto_approve_cfg = es.get("autoApprove", {})
-    auto_approve_on = auto_approve_cfg.get("enabled", False)
-    auto_approver = auto_approve_cfg.get("approverUsername", "")
-
-    if auto_approve_on and auto_approver:
-        # Auto-approve: ไม่ส่ง LINE manager, approve ทันที แล้วส่งไปกลุ่มเลย
-        try:
-            await approve_draft_dynamic(draft["_id"], {"sub": auto_approver})
-        except Exception as _ae:
-            print(f"[AUTO-APPROVE] failed: {_ae}")
-    else:
-        # Normal flow: แจ้ง LINE recorder + managers
-        try:
-            from ..services.line_notify_service import notify_draft_submitted
-            await notify_draft_submitted(draft)
-        except Exception as _e:
-            print(f"[LINE notify] draft submitted: {_e}")
+    # แจ้ง LINE: recorder + managers
+    try:
+        from ..services.line_notify_service import notify_draft_submitted
+        await notify_draft_submitted(draft)
+    except Exception as _e:
+        print(f"[LINE notify] draft submitted: {_e}")
 
     return {"success": True, "message": "ส่งรายการเพื่อขออนุมัติสำเร็จ", "draftId": draft["_id"]}
 
@@ -271,13 +229,9 @@ async def get_expenses(month_year: Optional[str] = None) -> dict:
     cursor = db.expenses.find(query).sort("date_iso", -1)
     expenses = []
     async for doc in cursor:
-        raw_date = doc.get("date", "")
-        parts_d = raw_date.split("/")
-        if len(parts_d) == 3 and len(parts_d[2]) == 4 and int(parts_d[2]) < 2500:
-            raw_date = f"{parts_d[0]}/{parts_d[1]}/{int(parts_d[2]) + 543}"
         expenses.append({
             "id": doc.get("_id", ""),
-            "date": raw_date,
+            "date": doc.get("date", ""),
             "category": doc.get("category", ""),
             "catKey": doc.get("catKey", ""),
             "amount": doc.get("amount", 0),
@@ -728,16 +682,10 @@ async def get_monthly_analysis_dynamic(month_year: Optional[str] = None) -> dict
 
 
 async def get_expense_history(month_year: Optional[str] = None, cat_key: Optional[str] = None,
-                               search: Optional[str] = None, page: int = 1, per_page: int = 20,
-                               date_from: Optional[str] = None, date_to: Optional[str] = None) -> dict:
+                               search: Optional[str] = None, page: int = 1, per_page: int = 20) -> dict:
     db = get_db()
     query: dict = {}
-    if date_from or date_to:
-        date_q: dict = {}
-        if date_from: date_q["$gte"] = date_from
-        if date_to:   date_q["$lte"] = date_to
-        query["date_iso"] = date_q
-    elif month_year:
+    if month_year:
         parts = month_year.split("/")
         if len(parts) == 2:
             mm, yyyy = parts[0].zfill(2), parts[1]
@@ -753,72 +701,30 @@ async def get_expense_history(month_year: Optional[str] = None, cat_key: Optiona
             {"note": {"$regex": s, "$options": "i"}},
             {"date": {"$regex": s, "$options": "i"}},
         ]
-    # ดึงทั้งหมดเพื่อ group by draftId ก่อน paginate
-    all_docs = await db.expenses.find(query).sort("date_iso", -1).to_list(None)
-
-    # รวบ usernames แล้ว query ชื่อจริงครั้งเดียว
-    usernames = set()
-    for doc in all_docs:
-        if doc.get("recorder"): usernames.add(doc["recorder"])
-        if doc.get("approvedBy"): usernames.add(doc["approvedBy"])
-    user_map: dict = {}
-    if usernames:
-        async for u in db.users.find({"username": {"$in": list(usernames)}},
-                                      {"username": 1, "firstName": 1, "lastName": 1, "name": 1}):
-            fn = u.get("firstName", "").strip()
-            ln = u.get("lastName", "").strip()
-            real = f"{fn} {ln}".strip() or u.get("name", "").strip() or u.get("username", "")
-            user_map[u["username"]] = real
-
-    def _real(username: str, fallback: str) -> str:
-        return user_map.get(username, fallback or username)
-
-    # Group by draftId — แต่ละ draft แสดงเป็น 1 แถว
-    seen_draft: dict = {}
-    grouped: list = []
-    for doc in all_docs:
-        draft_id = doc.get("draftId", "")
-        rec_uname = doc.get("recorder", "")
-        apr_uname = doc.get("approvedBy", "")
-        if draft_id and draft_id in seen_draft:
-            # เพิ่ม lineItem เข้า record เดิม
-            seen_draft[draft_id]["amount"] += doc.get("amount", 0)
-            seen_draft[draft_id]["lineItems"].append({
-                "detail": doc.get("detail", ""),
-                "amount": doc.get("amount", 0),
-            })
-        else:
-            _rd = doc.get("date", "")
-            _rp = _rd.split("/")
-            if len(_rp) == 3 and len(_rp[2]) == 4 and int(_rp[2]) < 2500:
-                _rd = f"{_rp[0]}/{_rp[1]}/{int(_rp[2]) + 543}"
-            rec = {
-                "id": doc.get("_id", ""),
-                "date": _rd,
-                "category": doc.get("category", ""),
-                "catKey": doc.get("catKey", ""),
-                "amount": doc.get("amount", 0),
-                "recorder": rec_uname,
-                "recorderName": _real(rec_uname, doc.get("recorderName", "")),
-                "recorderLineId": doc.get("recorderLineId", ""),
-                "detail": doc.get("detail", ""),
-                "note": doc.get("note", ""),
-                "approvedBy": apr_uname,
-                "approverName": _real(apr_uname, doc.get("approverName", "")) if apr_uname else "",
-                "approverLineId": doc.get("approverLineId", ""),
-                "approvedAt": doc.get("approvedAt"),
-                "draftId": draft_id,
-                "lineItems": [{"detail": doc.get("detail", ""), "amount": doc.get("amount", 0)}] if draft_id else doc.get("lineItems", []),
-                "rows": doc.get("rows", []),
-                "createdAt": doc.get("createdAt"),
-            }
-            if draft_id:
-                seen_draft[draft_id] = rec
-            grouped.append(rec)
-
-    total = len(grouped)
+    total = await db.expenses.count_documents(query)
     skip = (page - 1) * per_page
-    expenses = grouped[skip: skip + per_page]
+    cursor = db.expenses.find(query).sort("date_iso", -1).skip(skip).limit(per_page)
+    expenses = []
+    async for doc in cursor:
+        expenses.append({
+            "id": doc.get("_id", ""),
+            "date": doc.get("date", ""),
+            "category": doc.get("category", ""),
+            "catKey": doc.get("catKey", ""),
+            "amount": doc.get("amount", 0),
+            "recorder": doc.get("recorder", ""),
+            "recorderName": doc.get("recorderName", doc.get("recorder", "")),
+            "recorderLineId": doc.get("recorderLineId", ""),
+            "detail": doc.get("detail", ""),
+            "note": doc.get("note", ""),
+            "approvedBy": doc.get("approvedBy"),
+            "approverName": doc.get("approverName", doc.get("approvedBy", "")),
+            "approverLineId": doc.get("approverLineId", ""),
+            "approvedAt": doc.get("approvedAt"),
+            "draftId": doc.get("draftId"),
+            "lineItems": doc.get("lineItems", []),
+            "createdAt": doc.get("createdAt"),
+        })
     return {
         "success": True,
         "expenses": expenses,

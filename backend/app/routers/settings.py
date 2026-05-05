@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from ..database import get_db
-from ..deps import require_admin
+from ..deps import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -130,3 +130,39 @@ async def get_line_add_friend():
         return {"success": False, "basicId": "", "addFriendUrl": ""}
     url = f"https://line.me/R/ti/p/{basic_id}" if not basic_id.startswith("http") else basic_id
     return {"success": True, "basicId": basic_id, "addFriendUrl": url}
+
+
+@router.get("/expense-settings")
+async def get_expense_settings(current: dict = Depends(get_current_user)):
+    db = get_db()
+    doc = await db.system_settings.find_one({"_id": SETTINGS_DOC_ID}) or {}
+    es = doc.get("expenseSettings", {})
+    managers = await db.users.find(
+        {"role": "accounting_manager", "status": "active"},
+        {"username": 1, "firstName": 1, "lastName": 1, "name": 1, "_id": 0}
+    ).to_list(50)
+    manager_list = []
+    for m in managers:
+        fn = m.get("firstName", "").strip()
+        ln = m.get("lastName", "").strip()
+        display = f"{fn} {ln}".strip() or m.get("name", m.get("username", ""))
+        manager_list.append({"username": m["username"], "displayName": display})
+    return {
+        "success": True,
+        "settings": {
+            "autoApprove": es.get("autoApprove", {"enabled": False, "approverUsername": ""}),
+            "lineNotify": es.get("lineNotify", {"personal": True, "group": True}),
+        },
+        "managers": manager_list,
+    }
+
+
+@router.put("/expense-settings")
+async def update_expense_settings(body: dict, current: dict = Depends(get_current_user)):
+    db = get_db()
+    await db.system_settings.update_one(
+        {"_id": SETTINGS_DOC_ID},
+        {"$set": {"expenseSettings": body, "updatedBy": current.get("sub")}},
+        upsert=True,
+    )
+    return {"success": True, "message": "บันทึกการตั้งค่าสำเร็จ"}

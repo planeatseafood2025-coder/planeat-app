@@ -1,12 +1,10 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { getSession, saveSession } from '@/lib/auth'
 import { authApi } from '@/lib/api'
 import type { LoginResponse } from '@/types'
 import PlaNeatLogo from '@/components/PlaNeatLogo'
-import WaterCanvas from '@/components/WaterCanvas'
 
 const REMEMBER_KEY = 'planeat_remember'
 
@@ -32,6 +30,7 @@ export default function LoginPage() {
   const [showNew, setShowNew] = useState(false)
   const [devOtp, setDevOtp] = useState('')
 
+  const [showAdminLogin, setShowAdminLogin] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -151,62 +150,19 @@ export default function LoginPage() {
           {/* ── Login ── */}
           {step === 'login' && (
             <>
-              <h2 className="text-base font-bold text-slate-800 mb-5">เข้าสู่ระบบ</h2>
               {error && <div className="mb-4 p-3 rounded-lg text-sm text-red-700" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>{error}</div>}
-
-              <div className="mb-4">
-                <label className="form-label">Username</label>
-                <input ref={userRef} type="text" className="form-input" placeholder="กรอก Username"
-                  value={username} onChange={e => setUsername(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleLogin()} disabled={loading} />
-              </div>
-
-              <div className="mb-4">
-                <label className="form-label">Password</label>
-                <div className="relative">
-                  <input type={showPass ? 'text' : 'password'} className="form-input pr-10" placeholder="กรอก Password"
-                    value={password} onChange={e => setPassword(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleLogin()} disabled={loading} />
-                  <button type="button" onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
-                    <span className="material-icons-round" style={{ fontSize: 18 }}>{showPass ? 'visibility_off' : 'visibility'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="mb-5 flex items-center gap-2">
-                <button type="button" onClick={() => setRemember(!remember)}
-                  className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 select-none">
-                  <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 transition-colors"
-                    style={{ background: remember ? '#2563eb' : 'transparent', border: `2px solid ${remember ? '#2563eb' : '#cbd5e1'}` }}>
-                    {remember && <span className="material-icons-round text-white" style={{ fontSize: 13 }}>check</span>}
-                  </div>
-                  จดจำรหัสผ่าน
-                </button>
-              </div>
-
-              <button className="btn-primary w-full justify-center" onClick={handleLogin} disabled={loading}>
-                {loading ? <><span className="material-icons-round spin" style={{ fontSize: 16 }}>refresh</span>กำลังเข้าสู่ระบบ...</>
-                  : <><span className="material-icons-round" style={{ fontSize: 16 }}>login</span>เข้าสู่ระบบ</>}
-              </button>
 
               {/* Add Friend Banner */}
               {addFriendUrl && (
                 <a href={addFriendUrl} target="_blank" rel="noopener noreferrer"
-                  className="mt-4 flex items-center gap-2 p-3 rounded-xl text-sm border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors">
+                  className="mb-4 flex items-center gap-2 p-3 rounded-xl text-sm border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors">
                   <span className="material-icons-round text-green-500" style={{ fontSize: 18 }}>person_add</span>
                   <span className="flex-1">แอด LINE OA ก่อนสมัครสมาชิก เพื่อรับการแจ้งเตือน</span>
                   <span className="material-icons-round text-green-400" style={{ fontSize: 16 }}>open_in_new</span>
                 </a>
               )}
 
-              {/* LINE Login */}
-              <div className="mt-3 relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200" />
-                </div>
-                <div className="relative flex justify-center text-xs text-slate-400 bg-white px-2 w-fit mx-auto">หรือ</div>
-              </div>
+              {/* LINE Login — หลัก */}
               <button
                 onClick={async () => {
                   try {
@@ -216,7 +172,7 @@ export default function LoginPage() {
                     else setError(data.detail || 'ยังไม่ได้ตั้งค่า LINE Login')
                   } catch { setError('เกิดข้อผิดพลาด') }
                 }}
-                className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-white transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors"
                 style={{ background: '#06C755' }}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
@@ -225,15 +181,55 @@ export default function LoginPage() {
                 Login ด้วย LINE
               </button>
 
-              <div className="mt-4 flex gap-2">
-                <button onClick={() => { setStep('forgot_phone'); setError('') }}
-                  className="flex-1 text-xs text-blue-600 hover:text-blue-800 py-2 rounded-lg hover:bg-blue-50 transition-colors">
-                  <span className="material-icons-round align-middle mr-1" style={{ fontSize: 14 }}>lock_reset</span>
-                  ลืมรหัสผ่าน
+              {/* Admin login — ซ่อนไว้ */}
+              <div className="mt-4 text-center">
+                <button onClick={() => { setShowAdminLogin(p => !p); setError('') }}
+                  className="text-xs text-slate-300 hover:text-slate-500 transition-colors">
+                  <span className="material-icons-round align-middle mr-0.5" style={{ fontSize: 12 }}>admin_panel_settings</span>
+                  เข้าสู่ระบบสำหรับผู้ดูแล
                 </button>
               </div>
 
-              <div className="mt-3 pt-3 border-t border-slate-100 text-center">
+              {showAdminLogin && (
+                <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                  <div>
+                    <label className="form-label">Username</label>
+                    <input ref={userRef} type="text" className="form-input" placeholder="กรอก Username"
+                      value={username} onChange={e => setUsername(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleLogin()} disabled={loading} />
+                  </div>
+                  <div>
+                    <label className="form-label">Password</label>
+                    <div className="relative">
+                      <input type={showPass ? 'text' : 'password'} className="form-input pr-10" placeholder="กรอก Password"
+                        value={password} onChange={e => setPassword(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleLogin()} disabled={loading} />
+                      <button type="button" onClick={() => setShowPass(!showPass)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
+                        <span className="material-icons-round" style={{ fontSize: 18 }}>{showPass ? 'visibility_off' : 'visibility'}</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <button type="button" onClick={() => setRemember(!remember)}
+                      className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 select-none">
+                      <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors"
+                        style={{ background: remember ? '#2563eb' : 'transparent', border: `2px solid ${remember ? '#2563eb' : '#cbd5e1'}` }}>
+                        {remember && <span className="material-icons-round text-white" style={{ fontSize: 11 }}>check</span>}
+                      </div>
+                      <span className="text-xs">จดจำรหัสผ่าน</span>
+                    </button>
+                    <button onClick={() => { setStep('forgot_phone'); setError('') }}
+                      className="text-xs text-blue-500 hover:text-blue-700">ลืมรหัสผ่าน</button>
+                  </div>
+                  <button className="btn-primary w-full justify-center" onClick={handleLogin} disabled={loading}>
+                    {loading ? <><span className="material-icons-round spin" style={{ fontSize: 16 }}>refresh</span>กำลังเข้าสู่ระบบ...</>
+                      : <><span className="material-icons-round" style={{ fontSize: 16 }}>login</span>เข้าสู่ระบบ</>}
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-4 pt-3 border-t border-slate-100 text-center">
                 <p className="text-xs text-slate-400">
                   ต้องการความช่วยเหลือ?{' '}
                   <span className="text-blue-500 cursor-pointer hover:underline">ติดต่อ IT Support</span>
@@ -322,10 +318,11 @@ export default function LoginPage() {
           )}
         </div>
 
-        <Link href="/" className="inline-flex items-center gap-1 mt-5 text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
-          <span className="material-icons-round" style={{ fontSize: 14 }}>arrow_back</span>
-          กลับหน้าหลัก
-        </Link>
+        <a href="https://planeatsupport.duckdns.org/" className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-xl text-sm font-medium text-white transition-colors" style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)' }}>
+          <span className="material-icons-round" style={{ fontSize: 18 }}>arrow_back</span>
+          กลับสู่หน้าบันทึกประจำวัน
+        </a>
+
       </div>
     </div>
   )

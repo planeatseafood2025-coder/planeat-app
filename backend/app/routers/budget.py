@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query, Depends
 from typing import Optional
 from ..models.budget import SetBudgetRequest
 from ..services.budget_service import get_budget_summary, set_budget, get_yearly_budget_vs_actual
-from ..deps import require_admin
+from ..deps import require_admin, get_current_user
 
 router = APIRouter(prefix="/api", tags=["budget"])
 
@@ -20,7 +20,7 @@ async def write_budget(req: SetBudgetRequest):
 @router.get("/budget/yearly")
 async def yearly_budget(
     year: Optional[int] = Query(None),
-    current: dict = Depends(require_admin),
+    current: dict = Depends(get_current_user),
 ):
     """
     รายงาน Budget vs Actual รายเดือนตลอดปี สำหรับผู้บริหาร

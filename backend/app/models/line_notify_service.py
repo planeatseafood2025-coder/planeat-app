@@ -60,16 +60,6 @@ def _build_recorder_flex(draft: dict, mode: str, approver_name: str = "", reject
     ]
     if mode == "approved" and approver_name:
         body.append(_flex_row("อนุมัติโดย", approver_name, "#15803d"))
-    # แสดง label ถ้าเป็นรายการย้อนหลัง (date_iso คนละเดือนกับปัจจุบัน)
-    if mode == "approved":
-        from datetime import datetime as _dt
-        _iso = draft.get("date_iso", "") or draft.get("date", "")
-        try:
-            _exp_m = _dt.fromisoformat(_iso[:10]).strftime("%Y-%m")
-        except Exception:
-            _exp_m = ""
-        if _exp_m and _exp_m != _dt.now().strftime("%Y-%m"):
-            body.append(_flex_row("หมายเหตุ", "⏪ รายการย้อนหลัง", "#d97706"))
     if mode == "rejected" and reject_reason:
         body.append(_flex_row("เหตุผล", reject_reason, "#b91c1c"))
 
@@ -104,19 +94,16 @@ def _build_recorder_flex(draft: dict, mode: str, approver_name: str = "", reject
     total_color = "#15803d" if mode == "approved" else ("#b91c1c" if mode == "rejected" else "#1e3a8a")
     body.append(_flex_row("รวมทั้งหมด", f"฿{_fmt(total)}", total_color, bold=True))
 
-    if mode == "approved":
-        body.append({"type": "separator", "margin": "sm"})
-        if monthly_budget > 0:
-            after_remain = monthly_budget - spent_month
-            after_color = "#16a34a" if after_remain >= 0 else "#dc2626"
-            after_label = f"฿{_fmt(after_remain)}" if after_remain >= 0 else f"-฿{_fmt(abs(after_remain))}"
-            body += [
-                _flex_row("งบเดือนนี้",  f"฿{_fmt(monthly_budget)}", "#64748b"),
-                _flex_row("รวมหลังใช้",  f"฿{_fmt(spent_month)}",   "#475569"),
-                _flex_row("คงเหลือ",     after_label,                after_color, bold=True),
-            ]
-        else:
-            body.append(_flex_row("คงเหลือ", "ยังไม่มีการกำหนดงบประจำเดือน", "#dc2626", bold=True))
+    if mode == "approved" and monthly_budget > 0:
+        after_remain = monthly_budget - spent_month
+        after_color = "#16a34a" if after_remain >= 0 else "#dc2626"
+        after_label = f"฿{_fmt(after_remain)}" if after_remain >= 0 else f"-฿{_fmt(abs(after_remain))}"
+        body += [
+            {"type": "separator", "margin": "sm"},
+            _flex_row("งบเดือนนี้",  f"฿{_fmt(monthly_budget)}", "#64748b"),
+            _flex_row("รวมหลังใช้",  f"฿{_fmt(spent_month)}",   "#475569"),
+            _flex_row("คงเหลือ",     after_label,                after_color, bold=True),
+        ]
 
     alt_prefix = {"submitted": "📋 ส่งรายการสำเร็จ", "approved": "✅ อนุมัติแล้ว", "rejected": "❌ ไม่ผ่านอนุมัติ"}
     return {
@@ -337,8 +324,8 @@ def _flex_row(label: str, value: str, value_color: str = "#1e293b", bold: bool =
         "type": "box",
         "layout": "horizontal",
         "contents": [
-            {"type": "text", "text": label or "—", "size": "sm", "color": "#94a3b8", "flex": 3},
-            {"type": "text", "text": value or "—",  "size": "sm", "color": value_color,
+            {"type": "text", "text": label, "size": "sm", "color": "#94a3b8", "flex": 3},
+            {"type": "text", "text": value,  "size": "sm", "color": value_color,
              "flex": 7, "wrap": True, "weight": "bold" if bold else "regular"},
         ],
     }
@@ -475,14 +462,6 @@ async def notify_draft_submitted(draft: dict) -> None:
     2. แจ้ง accounting_manager ส่วนตัวผ่าน lineUid พร้อมปุ่ม Y/N
     """
     db = get_db()
-
-    # ── เช็ค lineNotify.personal toggle ─────────────────────────────────────
-    _es_doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
-    _ln_cfg = _es_doc.get("expenseSettings", {}).get("lineNotify", {})
-    notify_personal = _ln_cfg.get("personal", True)
-    if not notify_personal:
-        return
-
     draft_id  = draft.get("_id") or draft.get("id", "")
     recorder  = draft.get("recorder", "")
     cat       = draft.get("category", "")
@@ -624,15 +603,6 @@ async def notify_expense_approved(expense: dict, approver_username=None) -> None
     cat_key  = expense.get("catKey", "")
     cat      = expense.get("category", "")
 
-    # ดึงเดือนจาก date_iso ของ expense (ป้องกันรายการย้อนหลังใช้งบผิดเดือน)
-    date_iso = expense.get("date_iso", "") or expense.get("date", "")
-    try:
-        exp_date = datetime.fromisoformat(date_iso[:10])
-    except Exception:
-        exp_date = now
-    exp_month_str = exp_date.strftime("%Y-%m")
-    exp_my        = f"{exp_date.month:02d}/{exp_date.year}"
-
     # handle approver เป็น dict (JWT current user) หรือ string
     if isinstance(approver_username, dict):
         approver_uname = approver_username.get("sub") or approver_username.get("username", "")
@@ -651,13 +621,15 @@ async def notify_expense_approved(expense: dict, approver_username=None) -> None
             _ln = _apr.get("lastName", "").strip()
             approver_real = f"{_fn} {_ln}".strip() or _apr.get("name", "").strip() or approver_uname
 
-    # คำนวณยอดสะสม + งบ — ใช้เดือนของ expense ไม่ใช่เดือนปัจจุบัน
+    # คำนวณยอดสะสม + งบ
+    month_str = now.strftime("%Y-%m")
     agg = await db.expenses.aggregate([
-        {"$match": {"date_iso": {"$regex": f"^{exp_month_str}"}, "catKey": cat_key}},
+        {"$match": {"date_iso": {"$regex": f"^{month_str}"}, "catKey": cat_key}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(None)
     month_total     = agg[0]["total"] if agg else 0.0
-    budget_doc      = await db.budgets.find_one({"monthYear": exp_my}) or {}
+    my              = f"{now.month:02d}/{now.year}"
+    budget_doc      = await db.budgets.find_one({"monthYear": my}) or {}
     monthly_budget  = float(budget_doc.get("budgets", {}).get(cat_key, {}).get("monthly", 0))
 
     # ─── Budget warning: แจ้งครั้งแรกที่ข้ามเส้น 80% และ 100% ──────────────
@@ -665,7 +637,7 @@ async def notify_expense_approved(expense: dict, approver_username=None) -> None
         pct_used = month_total / monthly_budget * 100
         threshold = 100 if pct_used >= 100 else (80 if pct_used >= 80 else None)
         if threshold is not None:
-            flag_month = exp_date.strftime("%m/%Y")
+            flag_month = now.strftime("%m/%Y")
             existing_flag = await db.budget_warning_flags.find_one({
                 "monthYear": flag_month, "catKey": cat_key, "threshold": threshold
             })
@@ -679,29 +651,19 @@ async def notify_expense_approved(expense: dict, approver_username=None) -> None
                 except Exception as _bwe:
                     print(f"[LINE] notify_budget_warning failed: {_bwe}")
 
-    # ── อ่าน settings — lineNotify.group + autoNotify.approvedCard ─────────────
+    # ── อ่าน lineNotify settings ─────────────────────────────────────────────
     _es_doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
-    _es_cfg  = _es_doc.get("expenseSettings", {})
-    _ln_cfg  = _es_cfg.get("lineNotify", {})
-    _an_cfg  = _es_cfg.get("autoNotify", {})
-    notify_group   = _ln_cfg.get("group", True)
-    approved_card  = _an_cfg.get("approvedCard", True)
-    all_enabled    = _an_cfg.get("allEnabled", True)
-    if not all_enabled or not approved_card:
-        return
+    _ln_cfg = _es_doc.get("expenseSettings", {}).get("lineNotify", {})
+    notify_group = _ln_cfg.get("group", True)
 
     # ─── 1. ส่งไปกลุ่ม LINE OA ───────────────────────────────────────────────
     if notify_group:
         token, gid = await _get_expense_group()
-        if not gid:
-            # fallback: ใช้ targetId ของ mainLineOa
-            _sys = await db.system_settings.find_one({"_id": "system_settings"}) or {}
-            token = token or _sys.get("mainLineOa", {}).get("token", "")
-            gid   = _sys.get("mainLineOa", {}).get("targetId", "")
         if token and gid:
-            draft_id  = expense.get("draftId", "")
+            # ดึง draft เพื่อใช้ _id สำหรับ PDF URL
+            draft_id = expense.get("draftId", "")
             draft_doc = await db.expense_drafts.find_one({"_id": draft_id}) if draft_id else None
-            flex_src  = draft_doc if draft_doc else expense
+            flex_src = draft_doc if draft_doc else expense
             flex = _build_recorder_flex(
                 flex_src, mode="approved",
                 approver_name=approver_real,
@@ -721,133 +683,43 @@ async def _build_period_summary_flex(
     grand_spent: float,
     title: str = "📊 สรุปค่าใช้จ่าย",
     monthly: bool = False,
-    daily: bool = False,
-    pdf_url: str = "",
-    col1_label: str = "วันนี้",
 ) -> dict:
     """สร้าง Flex Message ตารางสรุปค่าใช้จ่ายตามช่วงเวลา"""
     body_items = []
 
-    # header row — daily ใช้หัวคอลัมน์ใหม่
-    if daily:
-        body_items.append({
-            "type": "box", "layout": "horizontal",
-            "backgroundColor": "#f1f5f9", "paddingAll": "5px", "cornerRadius": "4px",
-            "contents": [
-                {"type": "text", "text": "หมวด",          "size": "xs", "flex": 4, "weight": "bold", "color": "#475569"},
-                {"type": "text", "text": col1_label,      "size": "xs", "flex": 3, "weight": "bold", "color": "#475569", "align": "end"},
-                {"type": "text", "text": "ใช้ไปทั้งหมด",  "size": "xs", "flex": 4, "weight": "bold", "color": "#475569", "align": "end"},
-            ]
-        })
-    else:
-        body_items.append({
-            "type": "box", "layout": "horizontal",
-            "backgroundColor": "#f1f5f9", "paddingAll": "5px", "cornerRadius": "4px",
-            "contents": [
-                {"type": "text", "text": "หมวด",     "size": "xs", "flex": 4, "weight": "bold", "color": "#475569"},
-                {"type": "text", "text": "ใช้ไป",    "size": "xs", "flex": 3, "weight": "bold", "color": "#475569", "align": "end"},
-                {"type": "text", "text": "งบ/เดือน", "size": "xs", "flex": 3, "weight": "bold", "color": "#475569", "align": "end"},
-            ]
-        })
-
-    # ดึงยอดสะสมเดือน (สำหรับ daily mode คำนวณคงเหลือจาก spentMonth)
-    if daily:
-        db = get_db()
-        now = datetime.now()
-        my  = f"{now.month:02d}/{now.year}"
-        budget_doc   = await db.budgets.find_one({"monthYear": my}) or {}
-        budgets_cfg  = budget_doc.get("budgets", {})
-        # aggregate ยอดสะสมทั้งเดือนต่อ catKey
-        month_prefix = now.strftime("%Y-%m")
-        agg_pipe = [
-            {"$match": {"date_iso": {"$regex": f"^{month_prefix}"}}},
-            {"$group": {"_id": "$catKey", "total": {"$sum": "$amount"}}},
+    # header row
+    body_items.append({
+        "type": "box", "layout": "horizontal",
+        "backgroundColor": "#f1f5f9", "paddingAll": "5px", "cornerRadius": "4px",
+        "contents": [
+            {"type": "text", "text": "หมวด",     "size": "xs", "flex": 4, "weight": "bold", "color": "#475569"},
+            {"type": "text", "text": "ใช้ไป",    "size": "xs", "flex": 3, "weight": "bold", "color": "#475569", "align": "end"},
+            {"type": "text", "text": "งบ/เดือน", "size": "xs", "flex": 3, "weight": "bold", "color": "#475569", "align": "end"},
         ]
-        month_agg = await db.expenses.aggregate(agg_pipe).to_list(None)
-        spent_month_map = {r["_id"]: r["total"] for r in month_agg}
+    })
 
     for row in expenses_rows:
-        cat_key  = row["catKey"]
-        cat_name = row["category"]
+        pct = row["spent"] / row["budget"] * 100 if row["budget"] > 0 else 0
+        icon = "🔴" if pct > 100 else ("🟡" if pct > 80 else "🟢")
+        amt_color = "#dc2626" if pct > 100 else "#1e293b"
 
-        if daily:
-            today_spent  = row["spent"]
-            month_budget = float(budgets_cfg.get(cat_key, {}).get("monthly", 0)) if daily else row["budget"]
-            spent_month  = spent_month_map.get(cat_key, 0.0)
-            remaining    = month_budget - spent_month
-            pct_used     = spent_month / month_budget * 100 if month_budget > 0 else 0
+        body_items.append({
+            "type": "box", "layout": "horizontal", "paddingAll": "4px",
+            "contents": [
+                {"type": "text", "text": f"{icon} {row['category']}", "size": "xs", "flex": 4, "color": "#1e293b", "wrap": True},
+                {"type": "text", "text": f"฿{_fmt(row['spent'])}", "size": "xs", "flex": 3, "align": "end", "color": amt_color},
+                {"type": "text", "text": f"฿{_fmt(row['budget'])}", "size": "xs", "flex": 3, "align": "end", "color": "#64748b"},
+            ]
+        })
 
-            if pct_used > 100:
-                pct_color = "#dc2626"
-                pct_icon  = "🔴"
-                cat_label = f"❗ {cat_name}"
-            elif pct_used > 80:
-                pct_color = "#d97706"
-                pct_icon  = "🟡"
-                cat_label = cat_name
-            else:
-                pct_color = "#16a34a"
-                pct_icon  = "🟢"
-                cat_label = cat_name
-
-            # แถวข้อมูล 3 คอลัมน์ + กดทั้งแถวเพื่อดูเอกสาร
-            doc_url         = f"{FRONTEND_URL}/expense-control?tab=history&cat={cat_key}"
-            no_budget       = month_budget == 0
-            today_pct       = today_spent / month_budget * 100 if month_budget > 0 else 0
-
-            # สี today_pct
-            if no_budget:     today_pct_color = "#94a3b8"
-            elif today_pct > 20: today_pct_color = "#dc2626"
-            elif today_pct > 10: today_pct_color = "#d97706"
-            else:             today_pct_color = "#16a34a"
-
-            budget_sub   = f"งบ ฿{_fmt(month_budget)}" if not no_budget else "ยังไม่ได้ตั้งงบ"
-            budget_color = "#64748b" if not no_budget else "#94a3b8"
-
+        # รายเดือน: เพิ่มแถวคงเหลือ/ติดลบ
+        if monthly and row["budget"] > 0:
+            remaining = row["budget"] - row["spent"]
+            r_color  = "#16a34a" if remaining >= 0 else "#dc2626"
+            r_label  = f"คงเหลือ ฿{_fmt(remaining)}" if remaining >= 0 else f"ติดลบ -฿{_fmt(abs(remaining))}"
             body_items.append({
-                "type": "box", "layout": "horizontal", "paddingAll": "4px",
-                "action": {"type": "uri", "uri": doc_url},
-                "contents": [
-                    # คอลัมน์ 1: ชื่อหมวด + งบ/เดือน
-                    {"type": "box", "layout": "vertical", "flex": 4, "contents": [
-                        {"type": "text", "text": f"{pct_icon} {cat_label}", "size": "xs", "color": "#1e293b", "wrap": True, "weight": "bold"},
-                        {"type": "text", "text": budget_sub, "size": "xxs", "color": budget_color},
-                    ]},
-                    # คอลัมน์ 2: วันนี้ + % ของงบ
-                    {"type": "box", "layout": "vertical", "flex": 3, "contents": [
-                        {"type": "text", "text": f"฿{_fmt(today_spent)}", "size": "xs", "align": "end", "color": today_pct_color},
-                        {"type": "text", "text": f"{today_pct:.0f}% ของงบ" if not no_budget else "—", "size": "xxs", "align": "end", "color": today_pct_color},
-                    ]},
-                    # คอลัมน์ 3: ใช้ไปทั้งหมด + % ของงบ
-                    {"type": "box", "layout": "vertical", "flex": 4, "contents": [
-                        {"type": "text", "text": f"฿{_fmt(spent_month)}", "size": "xs", "align": "end", "color": pct_color},
-                        {"type": "text", "text": f"{pct_used:.0f}% ของงบ" if not no_budget else "—", "size": "xxs", "align": "end", "color": pct_color},
-                    ]},
-                ]
+                "type": "text", "text": f"   └ {r_label}", "size": "xxs", "color": r_color
             })
-            body_items.append({"type": "separator"})
-
-        else:
-            pct = row["spent"] / row["budget"] * 100 if row["budget"] > 0 else 0
-            icon = "🔴" if pct > 100 else ("🟡" if pct > 80 else "🟢")
-            amt_color = "#dc2626" if pct > 100 else "#1e293b"
-
-            body_items.append({
-                "type": "box", "layout": "horizontal", "paddingAll": "4px",
-                "contents": [
-                    {"type": "text", "text": f"{icon} {cat_name}", "size": "xs", "flex": 4, "color": "#1e293b", "wrap": True},
-                    {"type": "text", "text": f"฿{_fmt(row['spent'])}", "size": "xs", "flex": 3, "align": "end", "color": amt_color},
-                    {"type": "text", "text": f"฿{_fmt(row['budget'])}", "size": "xs", "flex": 3, "align": "end", "color": "#64748b"},
-                ]
-            })
-
-            if monthly and row["budget"] > 0:
-                remaining = row["budget"] - row["spent"]
-                r_color  = "#16a34a" if remaining >= 0 else "#dc2626"
-                r_label  = f"คงเหลือ ฿{_fmt(remaining)}" if remaining >= 0 else f"ติดลบ -฿{_fmt(abs(remaining))}"
-                body_items.append({
-                    "type": "text", "text": f"   └ {r_label}", "size": "xxs", "color": r_color
-                })
 
     body_items.append({"type": "separator", "margin": "sm"})
     body_items.append({
@@ -857,16 +729,6 @@ async def _build_period_summary_flex(
             {"type": "text", "text": f"฿{_fmt(grand_spent)}", "size": "sm", "weight": "bold", "color": "#1e3a8a", "flex": 5, "align": "end"},
         ]
     })
-
-    # footer contents
-    footer_contents: list = []
-    if daily:
-        dl_url = pdf_url or f"{FRONTEND_URL}/expense-control?tab=history"
-        footer_contents.append({
-            "type": "button", "style": "primary", "margin": "sm",
-            "color": "#1e3a8a",
-            "action": {"type": "uri", "label": "📋 ดูรายงานวันนี้", "uri": dl_url},
-        })
 
     return {
         "type": "flex",
@@ -887,8 +749,8 @@ async def _build_period_summary_flex(
                 "contents": body_items,
             },
             "footer": {
-                "type": "box", "layout": "vertical", "paddingAll": "8px", "spacing": "xs",
-                "contents": footer_contents,
+                "type": "box", "layout": "vertical", "paddingAll": "8px",
+                "contents": [{"type": "text", "text": _now_thai(), "size": "xxs", "color": "#94a3b8", "align": "center"}],
             },
         },
     }
@@ -963,227 +825,22 @@ async def notify_daily_summary(year: int, month: int, day: int) -> None:
     rows, grand = await _query_approved_expenses(date_prefix, date_prefix)
 
     if not rows:
+        msg = {"type": "text", "text": f"📋 สรุปค่าใช้จ่ายประจำวันที่ {day}/{month}/{year+543}\n\n— ไม่มีรายการอนุมัติในวันนี้ —"}
+        await _push(token, gid, [msg])
         return
 
     period_label = f"วันที่ {day} {THAI_MONTHS[month]} {year+543}"
-    flex = await _build_period_summary_flex(period_label, rows, grand, title="📋 สรุปค่าใช้จ่ายรายวัน", daily=True)
+    flex = await _build_period_summary_flex(period_label, rows, grand, title="📋 สรุปค่าใช้จ่ายรายวัน")
     await _push(token, gid, [flex])
 
 
-async def _build_daily_carousel(period_label: str, rows: list, grand: float, spent_month_map: dict, budgets_cfg: dict) -> dict:
-    """สร้าง Carousel — 1 bubble ต่อหมวด + bubble สุดท้ายสรุปรวม"""
-    bubbles = []
-    header_colors = ["#1e3a8a", "#15803d", "#7c3aed", "#b45309", "#0f766e", "#be185d"]
-
-    for i, row in enumerate(rows):
-        cat_key     = row["catKey"]
-        cat_name    = row["category"]
-        today_spent = row["spent"]
-        month_budget = float(budgets_cfg.get(cat_key, {}).get("monthly", 0))
-        spent_month  = spent_month_map.get(cat_key, 0.0)
-        remaining    = month_budget - spent_month
-        no_budget    = month_budget == 0
-
-        pct_used   = spent_month  / month_budget * 100 if month_budget > 0 else 0
-        today_pct  = today_spent  / month_budget * 100 if month_budget > 0 else 0
-        remain_pct = 100 - pct_used
-
-        def _pct_color(pct_used):
-            if pct_used > 100: return "#dc2626"
-            if pct_used > 80:  return "#d97706"
-            return "#16a34a"
-
-        def _remain_color(pct_left):
-            if pct_left < 0:   return "#dc2626"
-            if pct_left < 20:  return "#d97706"
-            return "#16a34a"
-
-        pct_icon   = "🔴" if pct_used > 100 else ("🟡" if pct_used > 80 else "🟢")
-        hdr_color  = header_colors[i % len(header_colors)]
-        doc_url    = f"{FRONTEND_URL}/expense-control?tab=history&cat={cat_key}"
-
-        def _row(label, amount, pct_text, amt_color, pct_color_val):
-            return {
-                "type": "box", "layout": "horizontal", "paddingTop": "4px",
-                "contents": [
-                    {"type": "text", "text": label,   "size": "xs", "color": "#64748b", "flex": 3},
-                    {"type": "text", "text": f"฿{_fmt(amount)}", "size": "xs", "align": "end", "color": amt_color, "flex": 4, "weight": "bold"},
-                    {"type": "text", "text": pct_text, "size": "xxs", "align": "end", "color": pct_color_val, "flex": 3},
-                ]
-            }
-
-        body_contents = [
-            {"type": "text", "text": f"งบ/เดือน: {'฿'+_fmt(month_budget) if not no_budget else 'ยังไม่ตั้งงบ'}", "size": "xxs", "color": "#94a3b8"},
-            {"type": "separator", "margin": "sm"},
-            _row("วันนี้",     today_spent, f"{today_pct:.0f}% ของงบ" if not no_budget else "—",
-                 _pct_color(today_pct) if not no_budget else "#1e293b",
-                 _pct_color(today_pct) if not no_budget else "#94a3b8"),
-            _row("ใช้แล้ว",   spent_month, f"{pct_used:.0f}% ของงบ" if not no_budget else "—",
-                 _pct_color(pct_used) if not no_budget else "#475569",
-                 _pct_color(pct_used) if not no_budget else "#94a3b8"),
-            {"type": "separator", "margin": "sm"},
-            _row("คงเหลือ",   abs(remaining) if not no_budget else 0,
-                 f"เหลือ {remain_pct:.0f}%" if not no_budget else "—",
-                 _remain_color(remain_pct) if not no_budget else "#94a3b8",
-                 _remain_color(remain_pct) if not no_budget else "#94a3b8"),
-        ]
-
-        bubbles.append({
-            "type": "bubble", "size": "kilo",
-            "header": {
-                "type": "box", "layout": "vertical",
-                "backgroundColor": hdr_color, "paddingAll": "12px",
-                "contents": [
-                    {"type": "text", "text": f"{pct_icon} {cat_name}", "color": "#ffffff", "size": "sm", "weight": "bold", "wrap": True},
-                ]
-            },
-            "body": {
-                "type": "box", "layout": "vertical", "paddingAll": "10px", "spacing": "xs",
-                "contents": body_contents,
-            },
-            "footer": {
-                "type": "box", "layout": "vertical", "paddingAll": "6px",
-                "contents": [{
-                    "type": "button", "style": "secondary", "height": "sm",
-                    "action": {"type": "uri", "label": "📋 ดูเอกสาร", "uri": doc_url},
-                }]
-            },
-        })
-
-    # bubble สุดท้าย: สรุปรวม
-    history_url = f"{FRONTEND_URL}/expense-control?tab=history"
-    bubbles.append({
-        "type": "bubble", "size": "kilo",
-        "header": {
-            "type": "box", "layout": "vertical",
-            "backgroundColor": "#0f172a", "paddingAll": "12px",
-            "contents": [
-                {"type": "text", "text": "📊 สรุปรวม", "color": "#93c5fd", "size": "sm", "weight": "bold"},
-                {"type": "text", "text": period_label,  "color": "#cbd5e1", "size": "xxs"},
-            ]
-        },
-        "body": {
-            "type": "box", "layout": "vertical", "paddingAll": "10px", "spacing": "xs",
-            "contents": [
-                {"type": "box", "layout": "horizontal", "contents": [
-                    {"type": "text", "text": "รวมวันนี้",   "size": "xs", "color": "#64748b", "flex": 3},
-                    {"type": "text", "text": f"฿{_fmt(grand)}", "size": "sm", "align": "end", "color": "#1e3a8a", "flex": 7, "weight": "bold"},
-                ]},
-                {"type": "text", "text": f"{len(rows)} หมวด", "size": "xxs", "color": "#94a3b8", "align": "end"},
-            ]
-        },
-        "footer": {
-            "type": "box", "layout": "vertical", "paddingAll": "6px",
-            "contents": [{
-                "type": "button", "style": "primary", "height": "sm", "color": "#1e3a8a",
-                "action": {"type": "uri", "label": "📋 ดูรายงาน", "uri": history_url},
-            }]
-        },
-    })
-
-    return {
-        "type": "flex",
-        "altText": f"📋 สรุปค่าใช้จ่าย {period_label}",
-        "contents": {"type": "carousel", "contents": bubbles},
-    }
-
-
-async def preview_daily_summary_to_uid(line_uid: str) -> bool:
-    """ส่ง preview สรุปวันนี้ (carousel) ไปที่ lineUid"""
-    now = datetime.now()
-    db  = get_db()
-    date_prefix = now.strftime("%Y-%m-%d")
-    rows, grand = await _query_approved_expenses(date_prefix, date_prefix)
-
-    # ถ้าไม่มีรายการวันนี้ ใช้ข้อมูลจำลอง
-    if not rows:
-        _my    = f"{now.month:02d}/{now.year}"
-        _bdoc  = await db.budgets.find_one({"monthYear": _my}) or {}
-        _budgets = _bdoc.get("budgets", {})
-        from ..services.category_service import get_all_categories
-        cats = await get_all_categories()
-        rows  = []
-        for c in cats[:4]:
-            ck = c["id"]
-            rows.append({"category": c["name"], "catKey": ck, "spent": 12500.0,
-                         "budget": float(_budgets.get(ck, {}).get("monthly", 0))})
-        grand = sum(r["spent"] for r in rows)
-
-    # ดึงยอดสะสมเดือน
-    month_prefix = now.strftime("%Y-%m")
-    _my  = f"{now.month:02d}/{now.year}"
-    _bdoc = await db.budgets.find_one({"monthYear": _my}) or {}
-    budgets_cfg = _bdoc.get("budgets", {})
-    agg = await db.expenses.aggregate([
-        {"$match": {"date_iso": {"$regex": f"^{month_prefix}"}}},
-        {"$group": {"_id": "$catKey", "total": {"$sum": "$amount"}}},
-    ]).to_list(None)
-    spent_month_map = {r["_id"]: r["total"] for r in agg}
-
-    period_label = f"วันที่ {now.day} {THAI_MONTHS[now.month]} {now.year+543} (ตัวอย่าง)"
-    flex = await _build_period_summary_flex(period_label, rows, grand, title="📋 สรุปค่าใช้จ่ายรายวัน", daily=True)
-
-    token, _ = await _get_module_group("expense")
-    if not token or not line_uid:
-        return False
-    return await _push(token, line_uid, [flex])
-
-
-async def preview_weekly_summary_to_uid(line_uid: str) -> bool:
-    """ส่ง preview สรุปสัปดาห์นี้ไปที่ lineUid (ใช้ข้อมูลจริงจาก DB)"""
-    now        = datetime.now()
-    week_start = now - __import__('datetime').timedelta(days=now.weekday())
-    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_end   = week_start + timedelta(days=6)
-    from_str   = week_start.strftime("%Y-%m-%d")
-    to_str     = week_end.strftime("%Y-%m-%d")
-
-    rows, grand = await _query_period_expenses(from_str, to_str)
-
-    # ถ้าไม่มีรายการสัปดาห์นี้ ใช้ข้อมูลจำลอง
-    if not rows:
-        db = get_db()
-        _my   = f"{now.month:02d}/{now.year}"
-        _bdoc = await db.budgets.find_one({"monthYear": _my}) or {}
-        _budgets = _bdoc.get("budgets", {})
-        from ..services.category_service import get_all_categories
-        cats  = await get_all_categories()
-        rows  = []
-        for c in cats[:4]:
-            ck = c["id"]
-            rows.append({"category": c["name"], "catKey": ck, "spent": 12500.0,
-                         "budget": float(_budgets.get(ck, {}).get("monthly", 0))})
-        grand = sum(r["spent"] for r in rows)
-
-    d_from = f"{week_start.day}/{week_start.month}/{week_start.year+543}"
-    d_to   = f"{week_end.day}/{week_end.month}/{week_end.year+543}"
-    period_label = f"{d_from} – {d_to} (ตัวอย่าง)"
-
-    flex = await _build_period_summary_flex(
-        period_label, rows, grand,
-        title="📋 สรุปค่าใช้จ่ายรายสัปดาห์", daily=True, col1_label="สัปดาห์นี้"
-    )
-    db  = get_db()
-    doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
-    token = doc.get("mainLineOa", {}).get("token", "")
-    if not token or not line_uid:
-        return False
-    return await _push(token, line_uid, [flex])
-
-
-async def notify_weekly_summary(week_start: datetime, week_end: datetime = None) -> None:
+async def notify_weekly_summary(week_start: datetime) -> None:
     """ส่งสรุปค่าใช้จ่ายรายสัปดาห์ไปกลุ่ม LINE OA"""
     token, gid = await _get_expense_group()
     if not token or not gid:
-        db = get_db()
-        _doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
-        token = _doc.get("mainLineOa", {}).get("token", "")
-        gid   = _doc.get("mainLineOa", {}).get("targetId", "")
-    if not token or not gid:
         return
 
-    if week_end is None:
-        week_end = week_start + timedelta(days=6)
+    week_end  = week_start + timedelta(days=6)
     from_str  = week_start.strftime("%Y-%m-%d")
     to_str    = week_end.strftime("%Y-%m-%d")
     rows, grand = await _query_period_expenses(from_str, to_str)
@@ -1192,19 +849,12 @@ async def notify_weekly_summary(week_start: datetime, week_end: datetime = None)
     d_to   = f"{week_end.day}/{week_end.month}/{week_end.year+543}"
     period_label = f"{d_from} – {d_to}"
 
-    # ถ้าข้ามเดือน ไม่แสดงงบเปรียบเทียบ (เพราะงบคนละเดือน)
-    cross_month = week_start.month != week_end.month
-    title = "📋 สรุปค่าใช้จ่าย" + (" (ต้นเดือน)" if cross_month and week_start.day == 1 else "รายสัปดาห์")
-
     if not rows:
-        msg = {"type": "text", "text": f"{title} {period_label}\n\n— ไม่พบรายการในช่วงนี้ —"}
+        msg = {"type": "text", "text": f"📋 สรุปค่าใช้จ่ายรายสัปดาห์ {period_label}\n\n— ไม่พบการใช้จ่ายในช่วงนี้ —"}
         await _push(token, gid, [msg])
         return
 
-    flex = await _build_period_summary_flex(
-        period_label, rows, grand,
-        title=title, daily=not cross_month, col1_label="ช่วงนี้"
-    )
+    flex = await _build_period_summary_flex(period_label, rows, grand, title="📋 สรุปค่าใช้จ่ายรายสัปดาห์")
     await _push(token, gid, [flex])
 
 

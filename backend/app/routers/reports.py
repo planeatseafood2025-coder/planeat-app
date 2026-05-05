@@ -12,7 +12,7 @@ from ..deps import require_admin, get_current_user
 from ..database import get_db
 from ..config import settings
 from ..services.report_service import build_report_data
-from ..services.pdf_service import generate_expense_report_pdf, generate_history_pdf
+from ..services.pdf_service import generate_expense_report_pdf, generate_history_pdf, generate_draft_receipt_pdf
 from ..services.line_oa_service import push_line_report
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -285,4 +285,45 @@ async def history_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/draft-receipt/{draft_id}")
+async def draft_receipt_pdf(draft_id: str):
+    db = get_db()
+    draft = await db.expense_drafts.find_one({"_id": draft_id})
+    if not draft:
+        draft = await db.expenses.find_one({"draftId": draft_id})
+    if not draft:
+        return JSONResponse(status_code=404, content={"error": "ไม่พบรายการ"})
+
+    def _resolve_name(user_doc, username_fallback, draft_name_fallback=""):
+        if not user_doc:
+            return draft_name_fallback or username_fallback
+        fn = user_doc.get("firstName", "").strip()
+        ln = user_doc.get("lastName", "").strip()
+        return f"{fn} {ln}".strip() or user_doc.get("name", "").strip() or draft_name_fallback or username_fallback
+
+    recorder_username = draft.get("recorder", "")
+    rec_user = await db.users.find_one({"username": recorder_username},
+        {"firstName": 1, "lastName": 1, "name": 1, "_id": 0})
+    recorder_name = _resolve_name(rec_user, recorder_username, draft.get("recorderName", ""))
+
+    approver_username = draft.get("approvedBy") or draft.get("reviewedBy") or ""
+    approver_name = ""
+    if approver_username:
+        appr_user = await db.users.find_one({"username": approver_username},
+            {"firstName": 1, "lastName": 1, "name": 1, "_id": 0})
+        approver_name = _resolve_name(appr_user, approver_username, draft.get("approverName", ""))
+
+    try:
+        pdf_bytes = generate_draft_receipt_pdf(draft, recorder_name=recorder_name, approver_name=approver_name)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": f"สร้าง PDF ล้มเหลว: {e}"})
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="planeat_receipt_{draft_id[:8]}.pdf"'},
     )

@@ -68,7 +68,7 @@ async def do_approve(draft_id: str, current: dict = Depends(get_current_user)):
         # แจ้งเตือน LINE ส่วนตัว accounting_manager
         try:
             from ..services.line_notify_service import notify_expense_approved
-            expense = result.get("expense") or {}
+            expense = result.get("draft") or {}
             await notify_expense_approved(expense, current)
         except Exception as e:
             print(f"[LINE notify] approve: {e}")
@@ -116,7 +116,7 @@ async def do_approve_dynamic(draft_id: str, current: dict = Depends(get_current_
         result = await approve_draft_dynamic(draft_id, current)
         try:
             from ..services.line_notify_service import notify_expense_approved
-            expense = result.get("expense") or {}
+            expense = result.get("draft") or {}
             await notify_expense_approved(expense, current)
         except Exception as e:
             print(f"[LINE notify] approve_dynamic: {e}")
@@ -132,9 +132,11 @@ async def expense_history(
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     perPage: int = Query(20, ge=1, le=100),
+    dateFrom: Optional[str] = Query(None),
+    dateTo: Optional[str] = Query(None),
     _current: dict = Depends(get_current_user),
 ):
-    return await get_expense_history(monthYear, catKey, search, page, perPage)
+    return await get_expense_history(monthYear, catKey, search, page, perPage, dateFrom, dateTo)
 
 
 def _check_editable(expense: dict):

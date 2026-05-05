@@ -200,9 +200,14 @@ export const expenseDraftApi = {
     request('PUT', `/api/expenses/drafts/${id}/approve`),
   reject: (id: string, reason: string) =>
     request('PUT', `/api/expenses/drafts/${id}/reject`, { reason }),
-  getHistory: (params?: { monthYear?: string; catKey?: string; search?: string; page?: number; perPage?: number }) => {
+  getHistory: (params?: { monthYear?: string; catKey?: string; search?: string; page?: number; perPage?: number; dateFrom?: string; dateTo?: string }) => {
     const p: Record<string, string> = {}
-    if (params?.monthYear) p.monthYear = params.monthYear
+    if (params?.dateFrom && params?.dateTo) {
+      p.dateFrom = params.dateFrom
+      p.dateTo = params.dateTo
+    } else if (params?.monthYear) {
+      p.monthYear = params.monthYear
+    }
     if (params?.catKey && params.catKey !== 'all') p.catKey = params.catKey
     if (params?.search) p.search = params.search
     if (params?.page) p.page = String(params.page)
@@ -238,6 +243,11 @@ export const dynamicDraftApi = {
 // ─── Settings ────────────────────────────────────────────────────
 export const settingsApi = {
   get: () => request('GET', '/api/settings'),
+  getExpenseSettings: () => request('GET', '/api/settings/expense-settings'),
+  updateExpenseSettings: (payload: {
+    autoApprove: { enabled: boolean; approverUsername: string }
+    lineNotify: { personal: boolean; group: boolean }
+  }) => request('PUT', '/api/settings/expense-settings', payload),
   update: (payload: {
     smtpEmail?: string; smtpPassword?: string; smtpServer?: string; smtpPort?: number
     lineOaConfigs?: Array<{

@@ -65,12 +65,22 @@ export default function ITAccessPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // Edit User state
+  // Detail view + inline edit
+  const [detailUser, setDetailUser] = useState<UserRecord | null>(null)
+  const [detailEditMode, setDetailEditMode] = useState(false)
+
+  // Edit User state (shared between table-row edit & detail inline edit)
   const [editUser, setEditUser] = useState<UserRecord | null>(null)
+  const [editFirstName, setEditFirstName] = useState('')
+  const [editLastName, setEditLastName] = useState('')
+  const [editPhone, setEditPhone] = useState('')
   const [editNickname, setEditNickname] = useState('')
+  const [editJobTitle, setEditJobTitle] = useState('')
+  const [editEmail, setEditEmail] = useState('')
   const [editRoles, setEditRoles] = useState<Role[]>(['general_user'])
   const [editStatus, setEditStatus] = useState<UserStatus>('active')
   const [editPassword, setEditPassword] = useState('')
+  const [editPerms, setEditPerms] = useState<Record<string, boolean>>({ labor: false, raw: false, chem: false, repair: false })
   const [saving, setSaving] = useState(false)
 
   // Delete User confirm
@@ -137,10 +147,21 @@ export default function ITAccessPage() {
   // ── Handlers ─────────────────────────────────────────────
   function openEdit(u: UserRecord) {
     setEditUser(u)
+    setEditFirstName((u as any).firstName || '')
+    setEditLastName((u as any).lastName || '')
+    setEditPhone((u as any).phone || '')
     setEditNickname(u.nickname || '')
+    setEditJobTitle((u as any).jobTitle || '')
+    setEditEmail((u as any).email || '')
     setEditRoles(u.roles?.length ? u.roles : [u.role])
     setEditStatus(u.status)
     setEditPassword('')
+    setEditPerms({ labor: !!(u.permissions?.labor), raw: !!(u.permissions?.raw), chem: !!(u.permissions?.chem), repair: !!(u.permissions?.repair) })
+  }
+
+  function openDetailEdit(u: UserRecord) {
+    openEdit(u)
+    setDetailEditMode(true)
   }
 
   function toggleRole(r: Role) {
@@ -153,10 +174,18 @@ export default function ITAccessPage() {
     if (!editUser) return
     setSaving(true)
     try {
-      const payload: any = { role: editRoles[0], roles: editRoles, status: editStatus, nickname: editNickname }
+      const payload: any = {
+        role: editRoles[0], roles: editRoles, status: editStatus,
+        firstName: editFirstName, lastName: editLastName, phone: editPhone,
+        nickname: editNickname, jobTitle: editJobTitle, email: editEmail,
+        permissions: editPerms,
+      }
       if (editPassword) payload.password = editPassword
       await usersApi.updateUser(editUser.username, payload)
-      setEditUser(null); loadUsers()
+      setEditUser(null)
+      setDetailEditMode(false)
+      setDetailUser(null)
+      loadUsers()
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')
     } finally { setSaving(false) }
@@ -296,6 +325,35 @@ export default function ITAccessPage() {
                   <span className="material-icons-round" style={{ fontSize: 16 }}>close</span>
                 </button>
               )}
+              <button className="btn-secondary" title="ดาวน์โหลดข้อมูลผู้ใช้ทั้งหมด (CSV)"
+                onClick={() => {
+                  const header = ['Username','ชื่อ','นามสกุล','ชื่อเล่น','ตำแหน่ง','เบอร์โทร','อีเมล','Role','สถานะ','LINE UID','วันที่สมัคร']
+                  const rows = users.map(u => [
+                    u.username,
+                    (u as any).firstName || '',
+                    (u as any).lastName || '',
+                    u.nickname || '',
+                    (u as any).jobTitle || '',
+                    (u as any).phone || '',
+                    (u as any).email || '',
+                    (u.roles?.length ? u.roles : [u.role]).join(';'),
+                    u.status,
+                    u.lineUid || '',
+                    u.createdAt ? new Date(u.createdAt).toLocaleDateString('th-TH') : '',
+                  ])
+                  const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+                  const bom = '﻿'
+                  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `planeat_users_${new Date().toISOString().slice(0,10)}.csv`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}>
+                <span className="material-icons-round" style={{ fontSize: 16 }}>download</span>
+                Export
+              </button>
             </div>
           </div>
 
@@ -325,12 +383,24 @@ export default function ITAccessPage() {
                     const rc = ROLE_COLORS[u.role] ?? { bg: '#f1f5f9', color: '#64748b' }
                     const sc = STATUS_COLORS[u.status] ?? STATUS_COLORS.active
                     return (
-                      <tr key={u.username} style={{ borderBottom: '1px solid #f1f5f9' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                      <tr key={u.username} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                        onClick={() => setDetailUser(u)}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f0f9ff')}
                         onMouseLeave={e => (e.currentTarget.style.background = '')}>
                         <td style={{ padding: '10px 12px', color: '#94a3b8' }}>{(page - 1) * PER_PAGE + i + 1}</td>
                         <td style={{ padding: '10px 12px', fontWeight: 500 }}>{u.username}</td>
-                        <td style={{ padding: '10px 12px' }}>{u.firstName || ''} {u.lastName || ''}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {(u as any).linePictureUrl ? (
+                              <img src={(u as any).linePictureUrl} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                            ) : (
+                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <span className="material-icons-round" style={{ fontSize: 15, color: '#94a3b8' }}>person</span>
+                              </div>
+                            )}
+                            <span>{u.firstName || ''} {u.lastName || ''}</span>
+                          </div>
+                        </td>
                         <td style={{ padding: '10px 12px', color: '#64748b' }}>{u.nickname || '-'}</td>
                         <td style={{ padding: '10px 12px', color: '#64748b' }}>{u.phone || '-'}</td>
                         <td style={{ padding: '10px 12px', color: '#64748b' }}>{u.jobTitle || '-'}</td>
@@ -352,10 +422,10 @@ export default function ITAccessPage() {
                             {STATUS_LABELS[u.status] ?? u.status}
                           </span>
                         </td>
-                        <td style={{ padding: '10px 12px' }}>
+                        <td style={{ padding: '10px 12px' }} onClick={e => e.stopPropagation()}>
                           {canManage && (
                             <div className="flex gap-1">
-                              <button onClick={() => openEdit(u)}
+                              <button onClick={() => { setDetailUser(u); openDetailEdit(u) }}
                                 style={{ padding: '4px 8px', borderRadius: 6, background: '#eff6ff', color: '#2563eb', border: 'none', cursor: 'pointer', fontSize: 12 }}>
                                 <span className="material-icons-round align-middle" style={{ fontSize: 14 }}>edit</span>
                               </button>
@@ -787,65 +857,185 @@ export default function ITAccessPage() {
         </div>
       )}
 
-      {/* ── Edit User Modal ── */}
-      {editUser && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <h3 className="text-base font-bold text-slate-800 mb-4">แก้ไขสิทธิ์ — {editUser.username}</h3>
+      {/* ── User Detail + Inline Edit Modal ── */}
+      {detailUser && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
+          onClick={() => { if (!detailEditMode) { setDetailUser(null) } }}>
+          <div style={{ background: 'white', borderRadius: 16, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+            onClick={e => e.stopPropagation()}>
 
-            <div className="mb-4">
-              <label className="form-label">ชื่อเล่น</label>
-              <input type="text" className="form-input" value={editNickname} onChange={e => setEditNickname(e.target.value)} />
-            </div>
-
-            <div className="mb-4">
-              <label className="form-label">Role <span className="text-slate-400 font-normal text-[11px]">(เลือกได้หลาย role)</span></label>
-              <div className="grid grid-cols-2 gap-1.5 mt-1">
-                {ALL_ROLES.map(r => {
-                  const active = editRoles.includes(r)
-                  const rc = ROLE_COLORS[r] ?? { bg: '#f1f5f9', color: '#64748b' }
-                  return (
-                    <button
-                      key={r} type="button"
-                      onClick={() => toggleRole(r)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '6px 10px', borderRadius: 8, border: `1.5px solid ${active ? rc.color : '#e2e8f0'}`,
-                        background: active ? rc.bg : '#f8fafc', cursor: 'pointer',
-                        fontSize: 12, fontWeight: active ? 600 : 400, color: active ? rc.color : '#64748b',
-                        textAlign: 'left', transition: 'all 0.12s',
-                      }}
-                    >
-                      <span className="material-icons-round" style={{ fontSize: 14, color: active ? rc.color : '#cbd5e1' }}>
-                        {active ? 'check_box' : 'check_box_outline_blank'}
-                      </span>
-                      {ROLE_LABELS[r] ?? r}
-                    </button>
-                  )
-                })}
+            {/* Header */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {detailUser.linePictureUrl ? (
+                  <img src={detailUser.linePictureUrl} alt="" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-icons-round" style={{ fontSize: 22, color: '#94a3b8' }}>person</span>
+                  </div>
+                )}
+                <div>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                    {detailUser.firstName} {detailUser.lastName}
+                    {detailUser.nickname ? <span style={{ fontWeight: 400, color: '#64748b', fontSize: 13 }}> ({detailUser.nickname})</span> : ''}
+                  </p>
+                  <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>{detailUser.username}</p>
+                </div>
               </div>
-            </div>
-
-            <div className="mb-4">
-              <label className="form-label">สถานะบัญชี</label>
-              <select className="form-input" value={editStatus} onChange={e => setEditStatus(e.target.value as UserStatus)}>
-                <option value="active">ใช้งาน</option>
-                <option value="pending">รอการอนุมัติ</option>
-                <option value="suspended">ระงับ</option>
-              </select>
-            </div>
-
-            <div className="mb-6">
-              <label className="form-label">เปลี่ยนรหัสผ่าน (เว้นว่างไว้เพื่อไม่เปลี่ยน)</label>
-              <input type="text" className="form-input" placeholder="ระบุรหัสผ่านใหม่..." value={editPassword} onChange={e => setEditPassword(e.target.value)} />
-            </div>
-
-            <div className="flex gap-2">
-              <button className="btn-primary flex-1 justify-center" onClick={handleSave} disabled={saving}>
-                {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+              <button onClick={() => { setDetailUser(null); setDetailEditMode(false) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                <span className="material-icons-round" style={{ fontSize: 20 }}>close</span>
               </button>
-              <button className="btn-secondary flex-1 justify-center" onClick={() => setEditUser(null)} disabled={saving}>ยกเลิก</button>
             </div>
+
+            {/* Body — VIEW mode */}
+            {!detailEditMode && (
+              <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13, overflowY: 'auto' }}>
+                {[
+                  { label: 'ตำแหน่ง',      value: (detailUser as any).jobTitle || '-' },
+                  { label: 'ชื่อเล่น',      value: detailUser.nickname || '-' },
+                  { label: 'เบอร์โทร',      value: detailUser.phone || '-' },
+                  { label: 'อีเมล',         value: (detailUser as any).email || '-' },
+                  { label: 'LINE Display',  value: detailUser.lineDisplayName || '-' },
+                  { label: 'LINE UID',      value: detailUser.lineUid || '-', mono: true },
+                  { label: 'วันที่สมัคร',   value: detailUser.createdAt ? new Date(detailUser.createdAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }) : '-' },
+                  { label: 'Login ผ่าน',    value: (detailUser as any).loginType === 'line' ? 'LINE' : 'Username/Password' },
+                ].map(row => (
+                  <div key={row.label} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <span style={{ color: '#94a3b8', minWidth: 100, flexShrink: 0 }}>{row.label}</span>
+                    <span style={{ color: '#1e293b', fontFamily: (row as any).mono ? 'monospace' : undefined, fontSize: (row as any).mono ? 11 : 13, wordBreak: 'break-all' }}>{row.value}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span style={{ color: '#94a3b8', minWidth: 100, flexShrink: 0 }}>Role</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {(detailUser.roles?.length ? detailUser.roles : [detailUser.role]).map(r => {
+                      const rc = ROLE_COLORS[r as Role] ?? { bg: '#f1f5f9', color: '#64748b' }
+                      return <span key={r} style={{ ...rc, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{ROLE_LABELS[r as Role] ?? r}</span>
+                    })}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ color: '#94a3b8', minWidth: 100, flexShrink: 0 }}>สถานะ</span>
+                  {(() => { const sc = STATUS_COLORS[detailUser.status] ?? STATUS_COLORS.active; return <span style={{ ...sc, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{STATUS_LABELS[detailUser.status] ?? detailUser.status}</span> })()}
+                </div>
+              </div>
+            )}
+
+            {/* Body — EDIT mode */}
+            {detailEditMode && (
+              <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', fontSize: 13 }}>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="form-label">ชื่อ</label>
+                    <input className="form-input" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} placeholder="ชื่อจริง" />
+                  </div>
+                  <div>
+                    <label className="form-label">นามสกุล</label>
+                    <input className="form-input" value={editLastName} onChange={e => setEditLastName(e.target.value)} placeholder="นามสกุล" />
+                  </div>
+                  <div>
+                    <label className="form-label">ชื่อเล่น</label>
+                    <input className="form-input" value={editNickname} onChange={e => setEditNickname(e.target.value)} placeholder="ชื่อเล่น" />
+                  </div>
+                  <div>
+                    <label className="form-label">เบอร์โทร</label>
+                    <input className="form-input" value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="0812345678" />
+                  </div>
+                  <div>
+                    <label className="form-label">ตำแหน่งงาน</label>
+                    <input className="form-input" value={editJobTitle} onChange={e => setEditJobTitle(e.target.value)} placeholder="เช่น บัญชี, ฝ่ายขาย" />
+                  </div>
+                  <div>
+                    <label className="form-label">อีเมล</label>
+                    <input type="email" className="form-input" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="example@email.com" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label">Role <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 11 }}>(เลือกได้หลาย role)</span></label>
+                  <div className="grid grid-cols-2 gap-1.5 mt-1">
+                    {ALL_ROLES.map(r => {
+                      const active = editRoles.includes(r)
+                      const rc = ROLE_COLORS[r] ?? { bg: '#f1f5f9', color: '#64748b' }
+                      return (
+                        <button key={r} type="button" onClick={() => toggleRole(r)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8,
+                            border: `1.5px solid ${active ? rc.color : '#e2e8f0'}`,
+                            background: active ? rc.bg : '#f8fafc', cursor: 'pointer',
+                            fontSize: 12, fontWeight: active ? 600 : 400, color: active ? rc.color : '#64748b', textAlign: 'left' }}>
+                          <span className="material-icons-round" style={{ fontSize: 14, color: active ? rc.color : '#cbd5e1' }}>
+                            {active ? 'check_box' : 'check_box_outline_blank'}
+                          </span>
+                          {ROLE_LABELS[r] ?? r}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label">สิทธิ์ดูข้อมูลหมวดหมู่</label>
+                  <div className="grid grid-cols-2 gap-1.5 mt-1">
+                    {([['labor','ค่าแรง'],['raw','วัตถุดิบ'],['chem','เคมี/หีบห่อ'],['repair','ซ่อมบำรุง']] as [string,string][]).map(([key, label]) => {
+                      const on = editPerms[key]
+                      return (
+                        <button key={key} type="button" onClick={() => setEditPerms(p => ({ ...p, [key]: !p[key] }))}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8,
+                            border: `1.5px solid ${on ? '#2563eb' : '#e2e8f0'}`,
+                            background: on ? '#eff6ff' : '#f8fafc', cursor: 'pointer',
+                            fontSize: 12, fontWeight: on ? 600 : 400, color: on ? '#2563eb' : '#64748b', textAlign: 'left' }}>
+                          <span className="material-icons-round" style={{ fontSize: 14, color: on ? '#2563eb' : '#cbd5e1' }}>
+                            {on ? 'toggle_on' : 'toggle_off'}
+                          </span>
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label">สถานะบัญชี</label>
+                  <select className="form-input" value={editStatus} onChange={e => setEditStatus(e.target.value as UserStatus)}>
+                    <option value="active">ใช้งาน</option>
+                    <option value="pending">รอการอนุมัติ</option>
+                    <option value="suspended">ระงับ</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label">เปลี่ยนรหัสผ่าน <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 11 }}>(เว้นว่างถ้าไม่เปลี่ยน)</span></label>
+                  <input type="text" className="form-input" placeholder="รหัสผ่านใหม่..." value={editPassword} onChange={e => setEditPassword(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {/* Footer */}
+            {canManage && (
+              <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8, flexShrink: 0 }}>
+                {!detailEditMode ? (
+                  <>
+                    <button onClick={() => openDetailEdit(detailUser)}
+                      style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: '#eff6ff', color: '#2563eb', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                      <span className="material-icons-round align-middle" style={{ fontSize: 14, marginRight: 4 }}>edit</span>แก้ไข
+                    </button>
+                    <button onClick={() => { setDetailUser(null); setDeleteTarget(detailUser.username) }}
+                      style={{ padding: '8px 16px', borderRadius: 8, background: '#fef2f2', color: '#dc2626', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                      <span className="material-icons-round align-middle" style={{ fontSize: 14 }}>delete</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSave} disabled={saving}>
+                      {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+                    </button>
+                    <button className="btn-secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setDetailEditMode(false)} disabled={saving}>
+                      ยกเลิก
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

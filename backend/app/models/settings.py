@@ -3,9 +3,9 @@ from typing import Optional, List
 
 class LineOASetting(BaseModel):
     id: str
-    category: str  # e.g., "expense-control"
-    name: str      # e.g., "ระบบควบคุมค่าใช้จ่าย"
-    token: str
+    category: str = ""
+    name: str = ""
+    token: str = ""
     channelId: str = ""
     channelSecret: str = ""
     mode: str = "send"   # "receive", "send", "both"
@@ -20,15 +20,19 @@ class MainLineOA(BaseModel):
     basicId: str = ""    # Basic ID ของ OA เช่น @abc1234 (ใช้สร้าง add friend link)
 
 class ModuleConnections(BaseModel):
-    """Target Group ID + ชื่อกลุ่ม แยกต่างหากสำหรับแต่ละโมดูล"""
-    expense:       str = ""
-    expenseName:   str = ""
-    inventory:     str = ""
-    inventoryName: str = ""
-    crm:           str = ""
-    crmName:       str = ""
-    access:        str = ""
-    accessName:    str = ""
+    """Target Group ID + ชื่อกลุ่ม + OA ที่ใช้ส่ง แยกต่างหากสำหรับแต่ละโมดูล"""
+    expense:        str = ""
+    expenseName:    str = ""
+    expenseOaId:    str = ""
+    inventory:      str = ""
+    inventoryName:  str = ""
+    inventoryOaId:  str = ""
+    crm:            str = ""
+    crmName:        str = ""
+    crmOaId:        str = ""
+    access:         str = ""
+    accessName:     str = ""
+    accessOaId:     str = ""
 
 class LineLoginConfig(BaseModel):
     clientId: str = ""

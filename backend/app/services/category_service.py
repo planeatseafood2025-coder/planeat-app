@@ -253,18 +253,32 @@ def calc_total_dynamic(cat: dict, row: dict) -> tuple[float, str]:
     else:
         total = fixed or (qty * price + addend)
 
-    # สร้าง detail string
-    parts = []
+    # สร้าง detail string แบบมี label — "label: value  label: value"
+    name_part = ""
+    detail_parts = []
     for f in fields:
-        role = f.get("calcRole", "none")
-        fid  = f.get("fieldId", "")
-        unit = f.get("unit", "")
+        role  = f.get("calcRole", "none")
+        fid   = f.get("fieldId", "")
+        label = f.get("label", "")
+        unit  = f.get("unit", "")
         if role == "note":
             continue
         val = row.get(fid, "")
-        if val:
-            parts.append(f"{val}{unit}")
-    detail = " × ".join(parts) if parts else cat.get("name", "")
+        if not val:
+            continue
+        if role == "none":
+            # ชื่อรายการ — ใส่เป็น prefix ไม่มี label
+            name_part = str(val)
+        else:
+            detail_parts.append(f"{label}: {val}{unit}")
+    if name_part and detail_parts:
+        detail = name_part + "  " + "  ".join(detail_parts)
+    elif name_part:
+        detail = name_part
+    elif detail_parts:
+        detail = "  ".join(detail_parts)
+    else:
+        detail = cat.get("name", "")
 
     return total, detail
 

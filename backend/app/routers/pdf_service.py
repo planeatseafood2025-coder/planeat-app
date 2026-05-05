@@ -285,6 +285,181 @@ def generate_expense_report_pdf(report_data: dict) -> bytes:
     return buf.getvalue()
 
 
+def generate_draft_receipt_pdf(
+    draft: dict,
+    recorder_name: str = "",
+    approver_name: str = "",
+) -> bytes:
+    """
+    สร้าง PDF ใบบันทึกค่าใช้จ่าย (receipt) สำหรับ draft เดียว
+    แสดงทุกรายการ lineItems เป็น numbered list + ลายเซ็น
+    """
+    font_name = _register_thai_font()
+
+    def _style(name: str, **kw) -> ParagraphStyle:
+        kw.setdefault("fontName", font_name)
+        return ParagraphStyle(name, **kw)
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=10*mm,  bottomMargin=15*mm,
+    )
+    page_w = A4[0] - 40*mm
+    story = []
+
+    now = datetime.now()
+    gen_str = f"{now.day} " + [
+        "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
+        "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"
+    ][now.month - 1] + f" {now.year + 543}"
+
+    # ─── Header ──────────────────────────────────────────────────────────────
+    header_tbl = Table(
+        [
+            [Paragraph("PlaNeat Support", _style("h1", fontSize=16, textColor=C_WHITE, alignment=1, leading=20))],
+            [Paragraph("ใบบันทึกค่าใช้จ่าย", _style("h2", fontSize=11, textColor=colors.HexColor("#93c5fd"), alignment=1, leading=14))],
+            [Paragraph(f"พิมพ์เมื่อ: {gen_str}", _style("gen", fontSize=8, textColor=colors.HexColor("#bfdbfe"), alignment=1, leading=11))],
+        ],
+        colWidths=[page_w],
+    )
+    header_tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), C_DARK_BLUE),
+        ("TOPPADDING",    (0, 0), (-1,  0), 14),
+        ("BOTTOMPADDING", (0,-1), (-1, -1), 10),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+    ]))
+    story.append(header_tbl)
+    story.append(Spacer(1, 6*mm))
+
+    # ─── Info rows ───────────────────────────────────────────────────────────
+    category = draft.get("category", "")
+    date_str = draft.get("date", "")
+    total    = float(draft.get("total", 0))
+    note     = draft.get("note", "") or "—"
+    draft_id = str(draft.get("_id", ""))
+    doc_no   = draft_id[-8:].upper() if draft_id else "—"
+
+    lbl = _style("lbl", fontSize=9, textColor=C_GRAY, leading=12)
+    val = _style("val", fontSize=10, textColor=C_BLACK, leading=13)
+
+    def _row(label, value):
+        return [Paragraph(label, lbl), Paragraph(str(value), val)]
+
+    info_data = [
+        _row("หมวด",       category),
+        _row("วันที่",      date_str),
+        _row("ผู้บันทึก",  recorder_name or "—"),
+        _row("อนุมัติโดย", approver_name or "—"),
+        _row("รหัสเอกสาร", doc_no),
+    ]
+    info_tbl = Table(info_data, colWidths=[35*mm, page_w - 35*mm])
+    info_tbl.setStyle(TableStyle([
+        ("FONTNAME",      (0, 0), (-1, -1), font_name),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW",     (0, -1), (-1, -1), 0.3, C_BORDER),
+        ("LINEABOVE",     (0, 0),  (-1,  0), 0.3, C_BORDER),
+        ("INNERGRID",     (0, 0),  (-1, -1), 0.3, C_BORDER),
+        ("BACKGROUND",    (0, 0),  (0,  -1), C_LIGHT_BLUE),
+    ]))
+    story.append(info_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ─── Items table ─────────────────────────────────────────────────────────
+    line_items = draft.get("lineItems") or []
+    if not line_items:
+        detail = draft.get("detail", "")
+        line_items = [{"detail": detail, "amount": total}] if detail else []
+
+    th = _style("th", fontSize=8, textColor=C_WHITE, alignment=1, leading=11)
+    td = _style("td", fontSize=9, textColor=C_BLACK, leading=12)
+    tdr = _style("tdr", fontSize=9, textColor=C_BLACK, alignment=2, leading=12)
+
+    item_rows = [[
+        Paragraph("ลำดับ",      th),
+        Paragraph("รายการ",     th),
+        Paragraph("ยอด (฿)",    th),
+    ]]
+    for idx, item in enumerate(line_items, 1):
+        item_rows.append([
+            Paragraph(str(idx), td),
+            Paragraph(str(item.get("detail", "")), td),
+            Paragraph(_fmt(float(item.get("amount", 0))), tdr),
+        ])
+
+    # total row
+    tot_s  = _style("tots",  fontSize=10, textColor=C_WHITE, fontName=font_name, leading=13)
+    tot_sr = _style("totsr", fontSize=10, textColor=C_WHITE, fontName=font_name, alignment=2, leading=13)
+    item_rows.append([
+        Paragraph("", tot_s),
+        Paragraph("รวมทั้งหมด", tot_s),
+        Paragraph(_fmt(total), tot_sr),
+    ])
+
+    col_w = [18*mm, page_w - 18*mm - 32*mm, 32*mm]
+    item_tbl = Table(item_rows, colWidths=col_w, repeatRows=1)
+    item_ts = TableStyle([
+        ("BACKGROUND",    (0, 0),  (-1, 0),  C_DARK_BLUE),
+        ("FONTNAME",      (0, 0),  (-1, -1), font_name),
+        ("FONTSIZE",      (0, 0),  (-1, -1), 9),
+        ("TOPPADDING",    (0, 0),  (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0),  (-1, -1), 5),
+        ("VALIGN",        (0, 0),  (-1, -1), "MIDDLE"),
+        ("GRID",          (0, 0),  (-1, -1), 0.3, C_BORDER),
+        ("ALIGN",         (0, 0),  (0,  -1), "CENTER"),
+        ("ALIGN",         (-1, 1), (-1, -1), "RIGHT"),
+        ("BACKGROUND",    (0, -1), (-1, -1), C_TOTAL_BG),
+        ("SPAN",          (0, -1), (1,  -1)),
+    ])
+    for ri in range(1, len(item_rows) - 1):
+        if ri % 2 == 0:
+            item_ts.add("BACKGROUND", (0, ri), (-1, ri), C_ALT_ROW)
+    item_tbl.setStyle(item_ts)
+    story.append(item_tbl)
+    story.append(Spacer(1, 10*mm))
+
+    # ─── Signature section ───────────────────────────────────────────────────
+    sig_s = _style("sig", fontSize=9, textColor=C_BLACK, alignment=1, leading=14)
+    name_s = _style("signame", fontSize=9, textColor=C_BLACK, alignment=1, leading=13)
+    line_s = _style("sigl", fontSize=8, textColor=C_GRAY, alignment=1, leading=11)
+
+    def _sig_block(title, name):
+        return [
+            Paragraph(".......................................................", line_s),
+            Paragraph(f"({name})" if name else "(....................................)", name_s),
+            Paragraph(title, sig_s),
+        ]
+
+    sig_tbl = Table(
+        [[_sig_block("ผู้บันทึก", recorder_name), _sig_block("ผู้อนุมัติ", approver_name)]],
+        colWidths=[page_w / 2, page_w / 2],
+    )
+    sig_tbl.setStyle(TableStyle([
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+    ]))
+    story.append(sig_tbl)
+
+    story.append(Spacer(1, 8*mm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=C_BORDER))
+    story.append(Spacer(1, 3*mm))
+    story.append(Paragraph(
+        f"PlaNeat Support System  ·  รหัสรายการ: {doc_no}",
+        _style("ft", fontSize=7, textColor=C_GRAY, alignment=1, leading=10),
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 def generate_history_pdf(
     records: list,
     period_label: str,
@@ -395,20 +570,48 @@ def generate_history_pdf(
     # ─── Category summary (when "all") ───────────────────────────────────────
     if categories_summary:
         cs = categories_summary
-        cat_headers = [Paragraph(h, st_sumth) for h in ["หมวดหมู่", "จำนวนรายการ", "ยอดรวม (฿)"]]
+        has_budget = any(c.get("budget", 0) > 0 for c in cs)
+        if has_budget:
+            cat_headers = [Paragraph(h, st_sumth) for h in ["หมวดหมู่", "จำนวนรายการ", "งบประมาณ (฿)", "ใช้ไป (฿)", "คงเหลือ (฿)"]]
+        else:
+            cat_headers = [Paragraph(h, st_sumth) for h in ["หมวดหมู่", "จำนวนรายการ", "ยอดรวม (฿)"]]
         cat_rows = [cat_headers]
+        total_bgt = sum(c.get("budget", 0) for c in cs)
         for c in sorted(cs, key=lambda x: -x.get("total", 0)):
+            rem = c.get("remaining", c.get("budget", 0) - c.get("total", 0))
+            rem_color = C_GREEN if rem >= 0 else C_RED
+            if has_budget:
+                cat_rows.append([
+                    Paragraph(c.get("name", ""), st_sumtd),
+                    Paragraph(str(c.get("count", 0)), S("sc", fontSize=8, textColor=C_BLACK, alignment=1, leading=11)),
+                    Paragraph(_fmt(c.get("budget", 0)), st_sumtdr),
+                    Paragraph(_fmt(c.get("total", 0)), st_sumtdr),
+                    Paragraph(_fmt(rem), S(f"rem{c.get('name','')}", fontSize=8, textColor=rem_color, alignment=2, leading=11)),
+                ])
+            else:
+                cat_rows.append([
+                    Paragraph(c.get("name", ""), st_sumtd),
+                    Paragraph(str(c.get("count", 0)), S("sc", fontSize=8, textColor=C_BLACK, alignment=1, leading=11)),
+                    Paragraph(_fmt(c.get("total", 0)), st_sumtdr),
+                ])
+        total_rem = total_bgt - grand_total
+        total_rem_color = C_GREEN if total_rem >= 0 else C_RED
+        if has_budget:
             cat_rows.append([
-                Paragraph(c.get("name", ""), st_sumtd),
-                Paragraph(str(c.get("count", 0)), S("sc", fontSize=8, textColor=C_BLACK, alignment=1, leading=11)),
-                Paragraph(_fmt(c.get("total", 0)), st_sumtdr),
+                Paragraph("รวมทั้งสิ้น", st_total),
+                Paragraph(str(len(records)), st_totalr),
+                Paragraph(_fmt(total_bgt), st_totalr),
+                Paragraph(_fmt(grand_total), st_totalr),
+                Paragraph(_fmt(total_rem), S("remtot", fontSize=9, textColor=total_rem_color, alignment=2, leading=13)),
             ])
-        cat_rows.append([
-            Paragraph("รวมทั้งสิ้น", st_total),
-            Paragraph(str(len(records)), st_totalr),
-            Paragraph(_fmt(grand_total), st_totalr),
-        ])
-        cw = [page_w * 0.5, page_w * 0.2, page_w * 0.3]
+            cw = [page_w * 0.3, page_w * 0.1, page_w * 0.2, page_w * 0.2, page_w * 0.2]
+        else:
+            cat_rows.append([
+                Paragraph("รวมทั้งสิ้น", st_total),
+                Paragraph(str(len(records)), st_totalr),
+                Paragraph(_fmt(grand_total), st_totalr),
+            ])
+            cw = [page_w * 0.5, page_w * 0.2, page_w * 0.3]
         cat_tbl = Table(cat_rows, colWidths=cw)
         cat_ts = TableStyle([
             ("BACKGROUND",    (0, 0), (-1, 0),  C_MID_BLUE),
@@ -580,190 +783,3 @@ def generate_history_pdf(
 
     doc.build(story)
     return buf.getvalue()
-
-
-def generate_draft_receipt_pdf(
-    draft: dict,
-    recorder_name: str = "",
-    approver_name: str = "",
-) -> bytes:
-    """
-    สร้าง PDF ใบบันทึกค่าใช้จ่าย (receipt) สำหรับ draft เดียว
-    แสดงทุกรายการ lineItems เป็น numbered list + ลายเซ็น
-    """
-    font_name = _register_thai_font()
-
-    def _style(name: str, **kw) -> ParagraphStyle:
-        kw.setdefault("fontName", font_name)
-        return ParagraphStyle(name, **kw)
-
-    buf = BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=A4,
-        leftMargin=20*mm, rightMargin=20*mm,
-        topMargin=10*mm,  bottomMargin=15*mm,
-    )
-    page_w = A4[0] - 40*mm
-    story = []
-
-    from datetime import timezone, timedelta; TZ_THAI = timezone(timedelta(hours=7)); now = datetime.now(tz=TZ_THAI)
-    gen_str = f"{now.day} " + [
-        "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
-        "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"
-    ][now.month - 1] + f" {now.year + 543}"
-
-    # ─── Header ──────────────────────────────────────────────────────────────
-    header_tbl = Table(
-        [
-            [Paragraph("PlaNeat Support", _style("h1", fontSize=16, textColor=C_WHITE, alignment=1, leading=20))],
-            [Paragraph("ใบบันทึกค่าใช้จ่าย", _style("h2", fontSize=11, textColor=colors.HexColor("#93c5fd"), alignment=1, leading=14))],
-            [Paragraph(f"พิมพ์เมื่อ: {gen_str}", _style("gen", fontSize=8, textColor=colors.HexColor("#bfdbfe"), alignment=1, leading=11))],
-        ],
-        colWidths=[page_w],
-    )
-    header_tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), C_DARK_BLUE),
-        ("TOPPADDING",    (0, 0), (-1,  0), 14),
-        ("BOTTOMPADDING", (0,-1), (-1, -1), 10),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
-    ]))
-    story.append(header_tbl)
-    story.append(Spacer(1, 6*mm))
-
-    # ─── Info rows ───────────────────────────────────────────────────────────
-    category = draft.get("category", "")
-    date_str = draft.get("date", "")
-    total    = float(draft.get("total", 0))
-    note     = draft.get("note", "") or "—"
-    draft_id = str(draft.get("_id", ""))
-    doc_no   = draft_id[-8:].upper() if draft_id else "—"
-
-    lbl = _style("lbl", fontSize=9, textColor=C_GRAY, leading=12)
-    val = _style("val", fontSize=10, textColor=C_BLACK, leading=13)
-
-    def _row(label, value):
-        return [Paragraph(label, lbl), Paragraph(str(value), val)]
-
-    info_data = [
-        _row("หมวด",       category),
-        _row("วันที่",      date_str),
-        _row("ผู้บันทึก",  recorder_name or "—"),
-        _row("อนุมัติโดย", approver_name or "—"),
-        _row("รหัสเอกสาร", doc_no),
-    ]
-    info_tbl = Table(info_data, colWidths=[35*mm, page_w - 35*mm])
-    info_tbl.setStyle(TableStyle([
-        ("FONTNAME",      (0, 0), (-1, -1), font_name),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEBELOW",     (0, -1), (-1, -1), 0.3, C_BORDER),
-        ("LINEABOVE",     (0, 0),  (-1,  0), 0.3, C_BORDER),
-        ("INNERGRID",     (0, 0),  (-1, -1), 0.3, C_BORDER),
-        ("BACKGROUND",    (0, 0),  (0,  -1), C_LIGHT_BLUE),
-    ]))
-    story.append(info_tbl)
-    story.append(Spacer(1, 5*mm))
-
-    # ─── Items table ─────────────────────────────────────────────────────────
-    line_items = draft.get("lineItems") or []
-    if not line_items:
-        detail = draft.get("detail", "")
-        line_items = [{"detail": detail, "amount": total}] if detail else []
-
-    th = _style("th", fontSize=8, textColor=C_WHITE, alignment=1, leading=11)
-    td = _style("td", fontSize=9, textColor=C_BLACK, leading=12)
-    tdr = _style("tdr", fontSize=9, textColor=C_BLACK, alignment=2, leading=12)
-
-    item_rows = [[
-        Paragraph("ลำดับ",      th),
-        Paragraph("รายการ",     th),
-        Paragraph("ยอด (฿)",    th),
-    ]]
-    def _norm_detail(detail: str) -> str:
-        """Normalize old '× separator' format to readable format"""
-        if not detail or "×" not in detail:
-            return detail
-        parts = [p.strip() for p in detail.split("×")]
-        if len(parts) == 3:
-            return f"{parts[0]}  จำนวน: {parts[1]}  ราคา: {parts[2]}"
-        elif len(parts) == 2:
-            return f"{parts[0]}  {parts[1]}"
-        return detail
-
-    for idx, item in enumerate(line_items, 1):
-        item_rows.append([
-            Paragraph(str(idx), td),
-            Paragraph(_norm_detail(str(item.get("detail", ""))), td),
-            Paragraph(_fmt(float(item.get("amount", 0))), tdr),
-        ])
-
-    # total row
-    tot_s  = _style("tots",  fontSize=10, textColor=C_WHITE, fontName=font_name, leading=13)
-    tot_sr = _style("totsr", fontSize=10, textColor=C_WHITE, fontName=font_name, alignment=2, leading=13)
-    item_rows.append([
-        Paragraph("", tot_s),
-        Paragraph("รวมทั้งหมด", tot_s),
-        Paragraph(_fmt(total), tot_sr),
-    ])
-
-    col_w = [18*mm, page_w - 18*mm - 32*mm, 32*mm]
-    item_tbl = Table(item_rows, colWidths=col_w, repeatRows=1)
-    item_ts = TableStyle([
-        ("BACKGROUND",    (0, 0),  (-1, 0),  C_DARK_BLUE),
-        ("FONTNAME",      (0, 0),  (-1, -1), font_name),
-        ("FONTSIZE",      (0, 0),  (-1, -1), 9),
-        ("TOPPADDING",    (0, 0),  (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0),  (-1, -1), 5),
-        ("VALIGN",        (0, 0),  (-1, -1), "MIDDLE"),
-        ("GRID",          (0, 0),  (-1, -1), 0.3, C_BORDER),
-        ("ALIGN",         (0, 0),  (0,  -1), "CENTER"),
-        ("ALIGN",         (-1, 1), (-1, -1), "RIGHT"),
-        ("BACKGROUND",    (0, -1), (-1, -1), C_TOTAL_BG),
-        ("SPAN",          (0, -1), (1,  -1)),
-    ])
-    for ri in range(1, len(item_rows) - 1):
-        if ri % 2 == 0:
-            item_ts.add("BACKGROUND", (0, ri), (-1, ri), C_ALT_ROW)
-    item_tbl.setStyle(item_ts)
-    story.append(item_tbl)
-    story.append(Spacer(1, 10*mm))
-
-    # ─── Signature section ───────────────────────────────────────────────────
-    sig_s = _style("sig", fontSize=9, textColor=C_BLACK, alignment=1, leading=14)
-    name_s = _style("signame", fontSize=9, textColor=C_BLACK, alignment=1, leading=13)
-    line_s = _style("sigl", fontSize=8, textColor=C_GRAY, alignment=1, leading=11)
-
-    def _sig_block(title, name):
-        return [
-            Paragraph(".......................................................", line_s),
-            Paragraph(f"({name})" if name else "(....................................)", name_s),
-            Paragraph(title, sig_s),
-        ]
-
-    sig_tbl = Table(
-        [[_sig_block("ผู้บันทึก", recorder_name), _sig_block("ผู้อนุมัติ", approver_name)]],
-        colWidths=[page_w / 2, page_w / 2],
-    )
-    sig_tbl.setStyle(TableStyle([
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
-    ]))
-    story.append(sig_tbl)
-
-    story.append(Spacer(1, 8*mm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=C_BORDER))
-    story.append(Spacer(1, 3*mm))
-    story.append(Paragraph(
-        f"PlaNeat Support System  ·  รหัสรายการ: {doc_no}",
-        _style("ft", fontSize=7, textColor=C_GRAY, alignment=1, leading=10),
-    ))
-
-    doc.build(story)
-    return buf.getvalue()
-
