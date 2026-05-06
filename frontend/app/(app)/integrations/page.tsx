@@ -354,8 +354,8 @@ export default function IntegrationsPage() {
                       Webhook URL — นำไปใส่ใน LINE Developer Console
                     </div>
                     <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-1.5 border border-blue-200">
-                      <code className="flex-1 break-all text-blue-800 select-all text-xs">{`https://planeatsupport.duckdns.org/api/line/webhook/${oa.id}`}</code>
-                      <button onClick={() => navigator.clipboard.writeText(`https://planeatsupport.duckdns.org/api/line/webhook/${oa.id}`)}
+                      <code className="flex-1 break-all text-blue-800 select-all text-xs">{`${API_BASE.replace(':8001', '').replace(':8002', '')}/api/line/webhook/${oa.id}`}</code>
+                      <button onClick={() => navigator.clipboard.writeText(`${API_BASE.replace(':8001', '').replace(':8002', '')}/api/line/webhook/${oa.id}`)}
                         className="flex-shrink-0 text-blue-600 hover:text-blue-800">
                         <span className="material-icons text-sm">content_copy</span>
                       </button>

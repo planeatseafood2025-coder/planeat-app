@@ -44,7 +44,7 @@ def _build_recorder_flex(draft: dict, mode: str, approver_name: str = "", reject
         pdf_url     = f"{FRONTEND_URL}/api/reports/draft-receipt/{_draft_id}"
         footer_items = [
             {"type": "button", "style": "primary", "color": "#15803d", "height": "sm",
-             "action": {"type": "uri", "label": "📄 ดาวน์โหลดเอกสาร", "uri": pdf_url}},
+             "action": {"type": "uri", "label": "ดาวน์โหลดเอกสาร", "uri": pdf_url}},
         ]
     else:  # rejected
         header_bg   = "#b91c1c"
