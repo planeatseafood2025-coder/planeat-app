@@ -223,6 +223,7 @@ export default function ExpenseControlPage() {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [catVersion, setCatVersion] = useState(0)
+  const [budgetRefreshKey, setBudgetRefreshKey] = useState(0)
   const [user, setUser] = useState<ReturnType<typeof getSession>>(null)
   const [isManager, setIsManager] = useState(false)
 
@@ -294,11 +295,11 @@ export default function ExpenseControlPage() {
 
       {tab === 'overview'    && <OverviewTab user={user} onGoToCategories={() => setTab('categories')} onGoToExecutive={() => setTab('executive')} />}
       {tab === 'daily'       && <DailyTab user={user} flash={flash} catVersion={catVersion} />}
-      {tab === 'pending'     && <PendingTab user={user} flash={flash} />}
-      {tab === 'budget'      && <BudgetTab user={user} flash={flash} />}
-      {tab === 'history'     && <HistoryTab />}
+      {tab === 'pending'     && <PendingTab user={user} flash={flash} onMutate={() => setBudgetRefreshKey(k => k + 1)} />}
+      {tab === 'budget'      && <BudgetTab user={user} flash={flash} onMutate={() => setBudgetRefreshKey(k => k + 1)} />}
+      {tab === 'history'     && <HistoryTab onMutate={() => setBudgetRefreshKey(k => k + 1)} />}
       {tab === 'categories'  && isManager && <CategoryManagerTab flash={flash} onCatChange={() => setCatVersion(v => v + 1)} />}
-      {tab === 'executive'   && isManager && <ExecutiveTab />}
+      {tab === 'executive'   && isManager && <ExecutiveTab refreshKey={budgetRefreshKey} />}
     </div>
   )
 }
@@ -1132,7 +1133,7 @@ function DynamicItemCard({ cat, item, idx, total, canDelete, onChange, onDelete 
 }
 
 // ─── Pending Approval Tab ─────────────────────────────────────────────────────
-function PendingTab({ user, flash }: { user: ReturnType<typeof getSession>; flash: (t: 'ok'|'err', m: string) => void }) {
+function PendingTab({ user, flash, onMutate }: { user: ReturnType<typeof getSession>; flash: (t: 'ok'|'err', m: string) => void; onMutate?: () => void }) {
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([])
   const [isManager, setIsManager] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1166,7 +1167,7 @@ function PendingTab({ user, flash }: { user: ReturnType<typeof getSession>; flas
     try {
       // Try dynamic approve first (handles both dynamic and legacy)
       const res = await dynamicDraftApi.approve(id) as { success: boolean; message: string }
-      if (res.success) { flash('ok', 'อนุมัติสำเร็จ — บันทึกลงระบบแล้ว'); invalidateCache('*'); loadDrafts(statusFilter) }
+      if (res.success) { flash('ok', 'อนุมัติสำเร็จ — บันทึกลงระบบแล้ว'); invalidateCache('*'); loadDrafts(statusFilter); onMutate?.() }
       else flash('err', res.message)
     } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
     finally { setProcessing(null) }
@@ -1177,7 +1178,7 @@ function PendingTab({ user, flash }: { user: ReturnType<typeof getSession>; flas
     setProcessing(id)
     try {
       const res = await expenseDraftApi.reject(id, rejectReason) as { success: boolean; message: string }
-      if (res.success) { flash('ok', 'ส่งผลการปฏิเสธแล้ว'); setRejectId(null); setRejectReason(''); loadDrafts(statusFilter) }
+      if (res.success) { flash('ok', 'ส่งผลการปฏิเสธแล้ว'); setRejectId(null); setRejectReason(''); loadDrafts(statusFilter); onMutate?.() }
       else flash('err', res.message)
     } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
     finally { setProcessing(null) }
@@ -1324,7 +1325,7 @@ function checkIsManager(user: ReturnType<typeof getSession>) {
 // ─── Budget Tab ───────────────────────────────────────────────────────────────
 const CAT_KEYS_LEGACY: CatKey[] = ['labor', 'raw', 'chem', 'repair']
 
-function BudgetTab({ user, flash }: { user: ReturnType<typeof getSession>; flash: (t: 'ok'|'err', m: string) => void }) {
+function BudgetTab({ user, flash, onMutate }: { user: ReturnType<typeof getSession>; flash: (t: 'ok'|'err', m: string) => void; onMutate?: () => void }) {
   const canEdit = MANAGER_ROLES.includes(user?.role || '') || user?.role === 'accountant'
   const [month, setMonth] = useState(todayMonth())
   const [data, setData] = useState<BudgetResponse | null>(null)
@@ -1381,7 +1382,7 @@ function BudgetTab({ user, flash }: { user: ReturnType<typeof getSession>; flash
         }]))
       }
       const res = await budgetApi.setBudget(payload) as { success: boolean; message: string }
-      if (res.success) { flash('ok', 'บันทึกงบประมาณสำเร็จ'); setShowModal(false); loadBudget(month); invalidateCache('*') }
+      if (res.success) { flash('ok', 'บันทึกงบประมาณสำเร็จ'); setShowModal(false); loadBudget(month); invalidateCache('*'); onMutate?.() }
       else flash('err', res.message || 'เกิดข้อผิดพลาด')
     } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
     finally { setSaving(false) }
@@ -1723,7 +1724,7 @@ function ExpenseHistoryRow({ e, isManager, categories, getCatLabel, isWithin3Day
 }
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
-function HistoryTab() {
+function HistoryTab({ onMutate }: { onMutate?: () => void }) {
   const user = getSession()
   const isManager = MANAGER_ROLES.includes(user?.role || '')
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([])
@@ -1801,6 +1802,7 @@ function HistoryTab() {
       await Promise.all([...selected].map(id => expenseApi.deleteExpense(id)))
       exitSelectMode()
       loadHistory(page, monthFilter, catFilter, search, filterMode === 'range' ? dateFrom : '', filterMode === 'range' ? dateTo : '')
+      onMutate?.()
     } catch {} finally { setDeletingBulk(false) }
   }
 
@@ -1860,6 +1862,7 @@ function HistoryTab() {
       if (res.success) {
         setDeleteTarget(null)
         loadHistory(page, monthFilter, catFilter, search, filterMode === 'range' ? dateFrom : '', filterMode === 'range' ? dateTo : '')
+        onMutate?.()
       }
     } catch {} finally { setDeleting(false) }
   }
@@ -1925,6 +1928,7 @@ function HistoryTab() {
       if (res.success) {
         setEditTarget(null)
         loadHistory(page, monthFilter, catFilter, search, filterMode === 'range' ? dateFrom : '', filterMode === 'range' ? dateTo : '')
+        onMutate?.()
       } else {
         setEditError(res.message || 'เกิดข้อผิดพลาด')
       }
@@ -3191,7 +3195,7 @@ function pctStyle(pct: number | null, future: boolean): { bar: string; text: str
 }
 
 
-function ExecutiveTab() {
+function ExecutiveTab({ refreshKey }: { refreshKey?: number }) {
   const thisYear = new Date().getFullYear()
   const [year, setYear] = useState(thisYear)
   const [data, setData] = useState<YearlyData | null>(null)
@@ -3204,7 +3208,7 @@ function ExecutiveTab() {
       .then(r => setData(r as YearlyData))
       .catch(() => setData(null))
       .finally(() => setLoading(false))
-  }, [year])
+  }, [year, refreshKey])
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => thisYear - 2 + i)
 
