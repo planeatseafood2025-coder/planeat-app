@@ -348,6 +348,36 @@ export const customerApi = {
   },
 }
 
+// ─── CRM B2B ─────────────────────────────────────────────────────
+export const crmB2bApi = {
+  getOverview: () => request('GET', '/api/crm-b2b/overview'),
+  getAccounts: (params?: { tier?: string; country?: string; assignedTo?: string; status?: string; q?: string; sort?: string }) => {
+    const p: Record<string, string> = {}
+    if (params?.tier) p.tier = params.tier
+    if (params?.country) p.country = params.country
+    if (params?.assignedTo) p.assignedTo = params.assignedTo
+    if (params?.status) p.status = params.status
+    if (params?.q) p.q = params.q
+    if (params?.sort) p.sort = params.sort
+    return request('GET', '/api/crm-b2b/accounts', undefined, p)
+  },
+  getAccount: (id: string) => request('GET', `/api/crm-b2b/accounts/${id}`),
+  createAccount: (data: unknown) => request('POST', '/api/crm-b2b/accounts', data),
+  updateAccount: (id: string, data: unknown) => request('PUT', `/api/crm-b2b/accounts/${id}`, data),
+  deleteAccount: (id: string) => request('DELETE', `/api/crm-b2b/accounts/${id}`),
+  getContacts: (accountId?: string) => {
+    const p: Record<string, string> = {}
+    if (accountId) p.accountId = accountId
+    return request('GET', '/api/crm-b2b/contacts', undefined, p)
+  },
+  createContact: (data: unknown) => request('POST', '/api/crm-b2b/contacts', data),
+  updateContact: (id: string, data: unknown) => request('PUT', `/api/crm-b2b/contacts/${id}`, data),
+  deleteContact: (id: string) => request('DELETE', `/api/crm-b2b/contacts/${id}`),
+  getCampaigns: () => request('GET', '/api/crm-b2b/campaigns'),
+  createCampaign: (data: unknown) => request('POST', '/api/crm-b2b/campaigns', data),
+  getCampaignStatus: (id: string) => request('GET', `/api/crm-b2b/campaigns/${id}/status`),
+}
+
 // ─── Health ──────────────────────────────────────────────────────
 export const healthApi = {
   ping: () => request('GET', '/api/health'),

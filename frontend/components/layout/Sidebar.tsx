@@ -47,6 +47,14 @@ const NAV: NavSection[] = [
     ],
   },
   {
+    label: 'CRM B2B',
+    items: [
+      { page: 'crm-b2b/overview',  label: 'Globe Overview',    icon: 'public' },
+      { page: 'crm-b2b/accounts',  label: 'บริษัทลูกค้า',      icon: 'business' },
+      { page: 'crm-b2b/campaigns', label: 'แคมเปญอีเมล',       icon: 'campaign' },
+    ],
+  },
+  {
     label: 'IT & Dev',
     items: [
       { page: 'it-access',    label: 'Access Control',      icon: 'admin_panel_settings' },
@@ -69,7 +77,7 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
   // Close mobile sidebar on route change
   useEffect(() => { setMobileOpen(false) }, [pathname])
 
-  const currentPage = pathname.split('/')[1] || 'dashboard'
+  const currentPath = pathname.replace(/^\//, '')
 
   function navTo(page: string) {
     const allowed = PAGE_ACCESS[page] || ['admin']
@@ -79,8 +87,8 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
   }
 
   function isActive(page: string) {
-    if (page === 'overview') return currentPage === 'expense-control'
-    return currentPage === page
+    if (page === 'overview') return currentPath === 'expense-control'
+    return currentPath === page || currentPath.startsWith(page + '/')
   }
 
   function isVisible(page: string) {
