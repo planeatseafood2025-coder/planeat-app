@@ -7,7 +7,7 @@ from ..services.expense_service import (
     submit_draft, get_drafts, approve_draft, reject_draft, get_expense_history,
     submit_draft_dynamic, approve_draft_dynamic, get_monthly_analysis_dynamic,
     submit_draft_dynamic_public,
-    ACCOUNTING_ROLES,
+    ACCOUNTING_ROLES, thai_date_to_iso,
 )
 from ..deps import get_current_user
 from ..database import get_db
@@ -170,6 +170,7 @@ async def edit_expense(expense_id: str, req: EditExpenseRequest, current: dict =
     updates: dict = {}
     if req.date is not None:
         updates["date"] = req.date
+        updates["date_iso"] = thai_date_to_iso(req.date)
     if req.amount is not None:
         updates["amount"] = req.amount
     if req.detail is not None:
