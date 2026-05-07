@@ -49,9 +49,12 @@ const NAV: NavSection[] = [
   {
     label: 'CRM B2B',
     items: [
-      { page: 'crm-b2b/overview',  label: 'Globe Overview',    icon: 'public' },
-      { page: 'crm-b2b/accounts',  label: 'บริษัทลูกค้า',      icon: 'business' },
-      { page: 'crm-b2b/campaigns', label: 'แคมเปญอีเมล',       icon: 'campaign' },
+      { page: 'crm-b2b/overview',    label: 'Globe Overview',   icon: 'public' },
+      { page: 'crm-b2b/accounts',   label: 'บริษัทลูกค้า',     icon: 'business' },
+      { page: 'crm-b2b/deals',      label: 'Deal Pipeline',    icon: 'view_kanban' },
+      { page: 'crm-b2b/activities', label: 'Activity Log',     icon: 'timeline' },
+      { page: 'crm-b2b/reminders',  label: 'Reminders',        icon: 'notifications_active' },
+      { page: 'crm-b2b/campaigns',  label: 'แคมเปญอีเมล',      icon: 'campaign' },
     ],
   },
   {

@@ -74,3 +74,48 @@ class EmailCampaignCreate(BaseModel):
     windowStart: str = "09:00"
     windowEnd: str = "18:00"
     respectTimezone: bool = True
+
+
+class CrmDealCreate(BaseModel):
+    accountId: str
+    title: str
+    value: float = 0
+    currency: str = "USD"
+    valueThb: float = 0
+    stage: str = "lead"
+    probability: int = 10
+    assignedTo: str = ""
+    expectedCloseDate: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class CrmDealUpdate(BaseModel):
+    title: Optional[str] = None
+    value: Optional[float] = None
+    currency: Optional[str] = None
+    valueThb: Optional[float] = None
+    stage: Optional[str] = None
+    probability: Optional[int] = None
+    assignedTo: Optional[str] = None
+    expectedCloseDate: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class CrmActivityCreate(BaseModel):
+    accountId: str
+    contactId: Optional[str] = None
+    dealId: Optional[str] = None
+    type: str = "note"
+    note: str = ""
+    language: str = "th"
+    nextAction: Optional[str] = None
+    nextActionDate: Optional[str] = None
+
+
+class CrmReminderCreate(BaseModel):
+    accountId: str
+    dealId: Optional[str] = None
+    message: str
+    remindAt: str
+    channel: str = "email"
+    priority: str = "medium"

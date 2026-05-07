@@ -376,6 +376,33 @@ export const crmB2bApi = {
   getCampaigns: () => request('GET', '/api/crm-b2b/campaigns'),
   createCampaign: (data: unknown) => request('POST', '/api/crm-b2b/campaigns', data),
   getCampaignStatus: (id: string) => request('GET', `/api/crm-b2b/campaigns/${id}/status`),
+  getDeals: (params?: { accountId?: string; stage?: string; assignedTo?: string }) => {
+    const p: Record<string, string> = {}
+    if (params?.accountId) p.accountId = params.accountId
+    if (params?.stage) p.stage = params.stage
+    if (params?.assignedTo) p.assignedTo = params.assignedTo
+    return request('GET', '/api/crm-b2b/deals', undefined, p)
+  },
+  createDeal: (data: unknown) => request('POST', '/api/crm-b2b/deals', data),
+  updateDeal: (id: string, data: unknown) => request('PUT', `/api/crm-b2b/deals/${id}`, data),
+  deleteDeal: (id: string) => request('DELETE', `/api/crm-b2b/deals/${id}`),
+  getActivities: (params?: { accountId?: string; type?: string }) => {
+    const p: Record<string, string> = {}
+    if (params?.accountId) p.accountId = params.accountId
+    if (params?.type) p.type = params.type
+    return request('GET', '/api/crm-b2b/activities', undefined, p)
+  },
+  createActivity: (data: unknown) => request('POST', '/api/crm-b2b/activities', data),
+  deleteActivity: (id: string) => request('DELETE', `/api/crm-b2b/activities/${id}`),
+  getReminders: (params?: { status?: string; accountId?: string }) => {
+    const p: Record<string, string> = {}
+    if (params?.status) p.status = params.status
+    if (params?.accountId) p.accountId = params.accountId
+    return request('GET', '/api/crm-b2b/reminders', undefined, p)
+  },
+  createReminder: (data: unknown) => request('POST', '/api/crm-b2b/reminders', data),
+  doneReminder: (id: string) => request('PUT', `/api/crm-b2b/reminders/${id}/done`),
+  deleteReminder: (id: string) => request('DELETE', `/api/crm-b2b/reminders/${id}`),
 }
 
 // ─── Health ──────────────────────────────────────────────────────

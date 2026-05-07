@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { crmB2bApi } from '@/lib/api'
 
 interface Account {
@@ -48,6 +49,7 @@ const BLANK: Omit<Account, '_id'> = {
 }
 
 export default function AccountsPage() {
+  const router = useRouter()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
@@ -190,6 +192,7 @@ export default function AccountsPage() {
             <tbody>
               {filtered.map(a => (
                 <tr key={a._id} style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer' }}
+                  onClick={() => router.push(`/crm-b2b/accounts/${a._id}`)}
                   onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
@@ -217,10 +220,10 @@ export default function AccountsPage() {
                   <td style={{ ...td, color: '#64748b', fontSize: 12 }}>{fmtDate(a.lastContact)}</td>
                   <td style={td}>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button onClick={() => openEdit(a)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', padding: 4, borderRadius: 6 }}>
+                      <button onClick={e => { e.stopPropagation(); openEdit(a) }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', padding: 4, borderRadius: 6 }}>
                         <span className="material-icons-round" style={{ fontSize: 17 }}>edit</span>
                       </button>
-                      <button onClick={() => setDeleteId(a._id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, borderRadius: 6 }}>
+                      <button onClick={e => { e.stopPropagation(); setDeleteId(a._id) }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, borderRadius: 6 }}>
                         <span className="material-icons-round" style={{ fontSize: 17 }}>delete</span>
                       </button>
                     </div>

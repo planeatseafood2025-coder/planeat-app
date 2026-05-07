@@ -8,6 +8,9 @@ from ..models.crm_b2b import (
     CrmAccountCreate, CrmAccountUpdate,
     CrmContactCreate, CrmContactUpdate,
     EmailCampaignCreate,
+    CrmDealCreate, CrmDealUpdate,
+    CrmActivityCreate,
+    CrmReminderCreate,
 )
 from ..deps import get_current_user
 from ..database import get_db
@@ -328,3 +331,170 @@ async def campaign_status(campaign_id: str, current: dict = Depends(get_current_
         raise HTTPException(status_code=404, detail="ไม่พบ campaign")
     campaign["_id"] = str(campaign["_id"])
     return campaign
+
+
+# ── Deals ─────────────────────────────────────────────────────────────────────
+
+@router.get("/deals")
+async def list_deals(
+    accountId: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None),
+    assignedTo: Optional[str] = Query(None),
+    current: dict = Depends(get_current_user),
+):
+    db = get_db()
+    query: dict = {}
+    if accountId:
+        query["accountId"] = accountId
+    if stage and stage != "all":
+        query["stage"] = stage
+    if assignedTo and assignedTo != "all":
+        query["assignedTo"] = assignedTo
+    deals = await db.crm_deals_b2b.find(query).sort("createdAt", -1).to_list(None)
+    for d in deals:
+        d["_id"] = str(d["_id"])
+    return {"deals": deals}
+
+
+@router.post("/deals")
+async def create_deal(req: CrmDealCreate, current: dict = Depends(get_current_user)):
+    db = get_db()
+    doc = req.dict()
+    doc["_id"] = str(uuid.uuid4())
+    doc["createdAt"] = datetime.now(timezone.utc).isoformat()
+    doc["createdBy"] = current.get("sub", "")
+    account = await db.crm_accounts.find_one({"_id": doc["accountId"]})
+    if account:
+        doc["accountName"] = account.get("name", "")
+    await db.crm_deals_b2b.insert_one(doc)
+    # Update account dealsOpen count
+    open_count = await db.crm_deals_b2b.count_documents({"accountId": doc["accountId"], "stage": {"$nin": ["won", "lost"]}})
+    pipeline_val = 0
+    async for d in db.crm_deals_b2b.find({"accountId": doc["accountId"]}):
+        pipeline_val += d.get("valueThb", 0)
+    await db.crm_accounts.update_one({"_id": doc["accountId"]}, {"$set": {"dealsOpen": open_count, "dealsValueThb": pipeline_val}})
+    return {"success": True, "_id": doc["_id"]}
+
+
+@router.put("/deals/{deal_id}")
+async def update_deal(deal_id: str, req: CrmDealUpdate, current: dict = Depends(get_current_user)):
+    db = get_db()
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    await db.crm_deals_b2b.update_one({"_id": deal_id}, {"$set": updates})
+    # Refresh account stats
+    deal = await db.crm_deals_b2b.find_one({"_id": deal_id})
+    if deal:
+        aid = deal.get("accountId", "")
+        open_count = await db.crm_deals_b2b.count_documents({"accountId": aid, "stage": {"$nin": ["won", "lost"]}})
+        pipeline_val = 0
+        async for d in db.crm_deals_b2b.find({"accountId": aid}):
+            pipeline_val += d.get("valueThb", 0)
+        await db.crm_accounts.update_one({"_id": aid}, {"$set": {"dealsOpen": open_count, "dealsValueThb": pipeline_val}})
+    return {"success": True}
+
+
+@router.delete("/deals/{deal_id}")
+async def delete_deal(deal_id: str, current: dict = Depends(get_current_user)):
+    db = get_db()
+    deal = await db.crm_deals_b2b.find_one({"_id": deal_id})
+    await db.crm_deals_b2b.delete_one({"_id": deal_id})
+    if deal:
+        aid = deal.get("accountId", "")
+        open_count = await db.crm_deals_b2b.count_documents({"accountId": aid, "stage": {"$nin": ["won", "lost"]}})
+        pipeline_val = 0
+        async for d in db.crm_deals_b2b.find({"accountId": aid}):
+            pipeline_val += d.get("valueThb", 0)
+        await db.crm_accounts.update_one({"_id": aid}, {"$set": {"dealsOpen": open_count, "dealsValueThb": pipeline_val}})
+    return {"success": True}
+
+
+# ── Activities ────────────────────────────────────────────────────────────────
+
+@router.get("/activities")
+async def list_activities(
+    accountId: Optional[str] = Query(None),
+    type: Optional[str] = Query(None),
+    current: dict = Depends(get_current_user),
+):
+    db = get_db()
+    query: dict = {}
+    if accountId:
+        query["accountId"] = accountId
+    if type and type != "all":
+        query["type"] = type
+    acts = await db.crm_activities_b2b.find(query).sort("createdAt", -1).limit(200).to_list(None)
+    for a in acts:
+        a["_id"] = str(a["_id"])
+    return {"activities": acts}
+
+
+@router.post("/activities")
+async def create_activity(req: CrmActivityCreate, current: dict = Depends(get_current_user)):
+    db = get_db()
+    doc = req.dict()
+    doc["_id"] = str(uuid.uuid4())
+    doc["createdAt"] = datetime.now(timezone.utc).isoformat()
+    doc["createdBy"] = current.get("sub", "")
+    account = await db.crm_accounts.find_one({"_id": doc["accountId"]})
+    if account:
+        doc["accountName"] = account.get("name", "")
+        await db.crm_accounts.update_one({"_id": doc["accountId"]}, {"$set": {"lastContact": doc["createdAt"][:10]}})
+    await db.crm_activities_b2b.insert_one(doc)
+    return {"success": True, "_id": doc["_id"]}
+
+
+@router.delete("/activities/{activity_id}")
+async def delete_activity(activity_id: str, current: dict = Depends(get_current_user)):
+    db = get_db()
+    await db.crm_activities_b2b.delete_one({"_id": activity_id})
+    return {"success": True}
+
+
+# ── Reminders ─────────────────────────────────────────────────────────────────
+
+@router.get("/reminders")
+async def list_reminders(
+    status: Optional[str] = Query(None),
+    accountId: Optional[str] = Query(None),
+    current: dict = Depends(get_current_user),
+):
+    db = get_db()
+    query: dict = {}
+    if status and status != "all":
+        query["status"] = status
+    if accountId:
+        query["accountId"] = accountId
+    reminders = await db.crm_reminders_b2b.find(query).sort("remindAt", 1).to_list(None)
+    for r in reminders:
+        r["_id"] = str(r["_id"])
+    return {"reminders": reminders}
+
+
+@router.post("/reminders")
+async def create_reminder(req: CrmReminderCreate, current: dict = Depends(get_current_user)):
+    db = get_db()
+    doc = req.dict()
+    doc["_id"] = str(uuid.uuid4())
+    doc["status"] = "pending"
+    doc["createdAt"] = datetime.now(timezone.utc).isoformat()
+    doc["createdBy"] = current.get("sub", "")
+    account = await db.crm_accounts.find_one({"_id": doc["accountId"]})
+    if account:
+        doc["accountName"] = account.get("name", "")
+    await db.crm_reminders_b2b.insert_one(doc)
+    return {"success": True, "_id": doc["_id"]}
+
+
+@router.put("/reminders/{reminder_id}/done")
+async def done_reminder(reminder_id: str, current: dict = Depends(get_current_user)):
+    db = get_db()
+    await db.crm_reminders_b2b.update_one({"_id": reminder_id}, {"$set": {"status": "done", "doneAt": datetime.now(timezone.utc).isoformat()}})
+    return {"success": True}
+
+
+@router.delete("/reminders/{reminder_id}")
+async def delete_reminder(reminder_id: str, current: dict = Depends(get_current_user)):
+    db = get_db()
+    await db.crm_reminders_b2b.delete_one({"_id": reminder_id})
+    return {"success": True}

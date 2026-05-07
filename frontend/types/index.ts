@@ -337,9 +337,12 @@ export const PAGE_ACCESS: Record<string, Role[]> = {
   integrations:        ['super_admin','it_manager','it_support','admin'],
   'customers/segments':     ALL_ROLES,
   'customers/connections':  ALL_ROLES,
-  'crm-b2b/overview':  ALL_ROLES,
-  'crm-b2b/accounts':  ALL_ROLES,
-  'crm-b2b/campaigns': ALL_ROLES,
+  'crm-b2b/overview':    ALL_ROLES,
+  'crm-b2b/accounts':    ALL_ROLES,
+  'crm-b2b/deals':       ALL_ROLES,
+  'crm-b2b/activities':  ALL_ROLES,
+  'crm-b2b/reminders':   ALL_ROLES,
+  'crm-b2b/campaigns':   ALL_ROLES,
 }
 
 // ─── CRM Workspace ───────────────────────────────────────────────
