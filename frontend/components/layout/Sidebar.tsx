@@ -33,14 +33,6 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    label: 'ลูกค้าสัมพันธ์',
-    items: [
-      { page: 'customers',                label: 'ลูกค้า (CRM)',         icon: 'contacts' },
-      { page: 'customers/segments',       label: 'กลุ่มลูกค้า',          icon: 'label' },
-      { page: 'customers/connections',    label: 'การเชื่อมต่อการตลาด',  icon: 'hub' },
-    ],
-  },
-  {
     label: 'การสื่อสาร',
     items: [
       { page: 'chat',       label: 'แชท',                  icon: 'chat' },
