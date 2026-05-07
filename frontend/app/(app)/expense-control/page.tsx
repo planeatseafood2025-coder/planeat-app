@@ -293,7 +293,7 @@ export default function ExpenseControlPage() {
         </div>
       </div>
 
-      {tab === 'overview'    && <OverviewTab user={user} onGoToCategories={() => setTab('categories')} onGoToExecutive={() => setTab('executive')} />}
+      {tab === 'overview'    && <OverviewTab user={user} onGoToCategories={() => setTab('categories')} onGoToExecutive={() => setTab('executive')} refreshKey={budgetRefreshKey} />}
       {tab === 'daily'       && <DailyTab user={user} flash={flash} catVersion={catVersion} />}
       {tab === 'pending'     && <PendingTab user={user} flash={flash} onMutate={() => setBudgetRefreshKey(k => k + 1)} />}
       {tab === 'budget'      && <BudgetTab user={user} flash={flash} onMutate={() => setBudgetRefreshKey(k => k + 1)} />}
@@ -305,10 +305,11 @@ export default function ExpenseControlPage() {
 }
 
 // ─── Overview Tab (Full Analytics) ───────────────────────────────────────────
-function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
+function OverviewTab({ user, onGoToCategories, onGoToExecutive, refreshKey }: {
   user: ReturnType<typeof getSession>
   onGoToCategories: () => void
   onGoToExecutive: () => void
+  refreshKey?: number
 }) {
   const isManager = MANAGER_ROLES.includes(user?.role || '')
   const [monthFilter, setMonthFilter] = useState(todayMonth())
@@ -339,7 +340,7 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive }: {
     } catch {} finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(monthFilter) }, [monthFilter, load])
+  useEffect(() => { load(monthFilter) }, [monthFilter, load, refreshKey])
 
   // Merge dynamic categories with analysis data
   const analysisMap = (analysisData?.analysis || {}) as Record<string, { total: number; budget: number; label: string; color: string }>
