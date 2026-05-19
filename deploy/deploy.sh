@@ -17,6 +17,9 @@ error() { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 
 cd "$APP_DIR"
 
+info "Running encoding guard..."
+python3 scripts/check_encoding.py || error "Encoding guard failed. Fix text encoding before deploy."
+
 info "Pulling latest code..."
 git pull
 

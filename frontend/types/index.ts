@@ -342,6 +342,7 @@ export const PAGE_ACCESS: Record<string, Role[]> = {
   'crm-b2b/deals':       ALL_ROLES,
   'crm-b2b/activities':  ALL_ROLES,
   'crm-b2b/reminders':   ALL_ROLES,
+  'crm-b2b/settings':    ['admin', 'super_admin', 'it_manager'],
   'crm-b2b/campaigns':   ALL_ROLES,
 }
 
@@ -570,7 +571,7 @@ export interface NotificationSchedule {
 }
 
 // ─── Dynamic Categories ──────────────────────────────────────────
-export type CalcRole = 'qty' | 'price' | 'addend' | 'fixed' | 'note' | 'none'
+export type CalcRole = 'qty' | 'qty2' | 'price' | 'addend' | 'fixed' | 'note' | 'none' | 'rate1' | 'rate2'
 export type FieldType = 'number' | 'text' | 'select'
 
 export interface CategoryField {
@@ -582,6 +583,7 @@ export interface CategoryField {
   required: boolean
   calcRole: CalcRole
   options: string[]
+  presetValue?: number
 }
 
 export interface ExpenseCategory {

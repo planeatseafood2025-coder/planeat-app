@@ -17,10 +17,14 @@ function calcTotalDynamic(cat: ExpenseCategory, row: Record<string, string>): nu
     if (['qty','price','addend','fixed'].includes(f.calcRole)) {
       vals[f.calcRole] = parseFloat(row[f.fieldId] || '0') || 0
     }
+    if (f.calcRole === 'qty2') vals['qty2'] = parseFloat(row[f.fieldId] || '0') || 0
+    if (f.calcRole === 'rate1') vals['rate1'] = (f as any).presetValue ?? 0
+    if (f.calcRole === 'rate2') vals['rate2'] = (f as any).presetValue ?? 0
   })
-  const { qty = 0, price = 0, addend = 0, fixed = 0 } = vals
+  const { qty = 0, qty2 = 0, price = 0, addend = 0, fixed = 0, rate1 = 0, rate2 = 0 } = vals as any
   if (cat.formula === 'qty*price') return qty * price
-  if (cat.formula === 'qty*price+addend') return qty * price + addend
+  if (cat.formula === 'qty*price+addend' || cat.formula === 'qty*price+addend2') return qty * price + addend
+  if (cat.formula === 'labor_ot') return (qty * rate1) + (qty2 * rate2)
   if (cat.formula === 'fixed') return fixed
   if (cat.formula === 'qty+price') return qty + price
   return fixed || (qty * price + addend)
@@ -145,7 +149,7 @@ function DynamicItemCard({ cat, item, idx, total, canDelete, onChange, onDelete 
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-2">
-        {cat.fields.filter(f => f.calcRole !== 'note').map(f => {
+        {cat.fields.filter(f => f.calcRole !== 'note' && f.calcRole !== 'rate1' && f.calcRole !== 'rate2').map(f => {
           const unitKey = `__unit_${f.fieldId}`
           const curUnit = item[unitKey] || ''
           const nameHint = suggestUnit(item[f.fieldId] || '')
@@ -333,7 +337,7 @@ function StandaloneInner() {
     
     for (const item of items) {
       for (const f of cat.fields) {
-        if (f.required && !item[f.fieldId]?.toString().trim()) {
+        if (f.required && f.calcRole !== 'rate1' && f.calcRole !== 'rate2' && !item[f.fieldId]?.toString().trim()) {
           alert(`กรุณากรอกฟิลด์ "${f.label}" ให้ครบถ้วน`)
           return
         }

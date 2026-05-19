@@ -1,13 +1,10 @@
-# ─── Stage 1: Dependencies ───────────────────────────────────────
-FROM node:20-alpine AS deps
+﻿FROM node:20-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
-# ติดตั้ง SWC binary สำหรับ Linux
 RUN npm install @next/swc-linux-x64-gnu --no-save 2>/dev/null || true
 
-# ─── Stage 2: Build ──────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
 
@@ -21,12 +18,11 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
+RUN rm -rf .next
 RUN mkdir -p public
 RUN npm run build
-# สร้าง font-manifest.json ถ้าไม่มี (เกิดจาก optimizeFonts: false)
 RUN mkdir -p .next/server && test -f .next/server/font-manifest.json || echo '{}' > .next/server/font-manifest.json
 
-# ─── Stage 3: Production runner ──────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 

@@ -809,13 +809,17 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
   function calcPreview(cat: ExpenseCategory, row: Record<string, string>): number {
     const vals: Record<string, number> = {}
     cat.fields.forEach(f => {
-      if (['qty','price','addend','fixed'].includes(f.calcRole)) {
+      if (['qty','qty2','price','addend','fixed'].includes(f.calcRole)) {
         vals[f.calcRole] = parseFloat(row[f.fieldId] || '0') || 0
       }
+      if (f.calcRole === 'rate1') vals['rate1'] = f.presetValue ?? 0
+      if (f.calcRole === 'rate2') vals['rate2'] = f.presetValue ?? 0
     })
-    const { qty = 0, price = 0, addend = 0, fixed = 0 } = vals
+    const { qty = 0, qty2 = 0, price = 0, addend = 0, fixed = 0, rate1 = 0, rate2 = 0 } = vals
     if (cat.formula === 'qty*price') return qty * price
     if (cat.formula === 'qty*price+addend') return qty * price + addend
+    if (cat.formula === 'qty*price+addend2') return qty * price + addend
+    if (cat.formula === 'labor_ot') return (qty * rate1) + (qty2 * rate2)
     if (cat.formula === 'fixed') return fixed
     if (cat.formula === 'qty+price') return qty + price
     return fixed || (qty * price + addend)
@@ -829,7 +833,7 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
     // Validate required fields
     for (const item of items) {
       for (const f of cat.fields) {
-        if (f.required && f.calcRole !== 'note' && !item[f.fieldId]) {
+        if (f.required && f.calcRole !== 'note' && f.calcRole !== 'rate1' && f.calcRole !== 'rate2' && !item[f.fieldId]) {
           flash('err', `กรุณากรอก "${f.label}"`)
           return
         }
@@ -857,10 +861,10 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
         invalidateCache('*')
         flash('ok', `${res.message} — รอผู้จัดการฝ่ายบัญชีตรวจสอบ`)
       } else {
-        flash('err', res.message)
+        flash('err', typeof res.message === 'string' ? res.message : JSON.stringify(res.message))
       }
     } catch (e: unknown) {
-      flash('err', (e as Error).message || 'เกิดข้อผิดพลาด')
+      flash('err', (e instanceof Error ? e.message : JSON.stringify(e)) || 'เกิดข้อผิดพลาด')
     } finally { setSubmitting(null) }
   }
 
@@ -1070,7 +1074,7 @@ function DynamicItemCard({ cat, item, idx, total, canDelete, onChange, onDelete 
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 4 }}>
-        {cat.fields.filter(f => f.calcRole !== 'note').map(f => {
+        {cat.fields.filter(f => f.calcRole !== 'note' && f.calcRole !== 'rate1' && f.calcRole !== 'rate2').map(f => {
           const unitKey = `__unit_${f.fieldId}`
           const curUnit = item[unitKey] || ''
           const nameHint = suggestUnit(item[f.fieldId] || '')
@@ -1169,8 +1173,8 @@ function PendingTab({ user, flash, onMutate }: { user: ReturnType<typeof getSess
       // Try dynamic approve first (handles both dynamic and legacy)
       const res = await dynamicDraftApi.approve(id) as { success: boolean; message: string }
       if (res.success) { flash('ok', 'อนุมัติสำเร็จ — บันทึกลงระบบแล้ว'); invalidateCache('*'); loadDrafts(statusFilter); onMutate?.() }
-      else flash('err', res.message)
-    } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
+      else flash('err', typeof res.message === 'string' ? res.message : JSON.stringify(res.message))
+    } catch (e: unknown) { flash('err', (e instanceof Error ? e.message : JSON.stringify(e)) || 'เกิดข้อผิดพลาด') }
     finally { setProcessing(null) }
   }
 
@@ -1180,8 +1184,8 @@ function PendingTab({ user, flash, onMutate }: { user: ReturnType<typeof getSess
     try {
       const res = await expenseDraftApi.reject(id, rejectReason) as { success: boolean; message: string }
       if (res.success) { flash('ok', 'ส่งผลการปฏิเสธแล้ว'); setRejectId(null); setRejectReason(''); loadDrafts(statusFilter); onMutate?.() }
-      else flash('err', res.message)
-    } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
+      else flash('err', typeof res.message === 'string' ? res.message : JSON.stringify(res.message))
+    } catch (e: unknown) { flash('err', (e instanceof Error ? e.message : JSON.stringify(e)) || 'เกิดข้อผิดพลาด') }
     finally { setProcessing(null) }
   }
 
@@ -1385,7 +1389,7 @@ function BudgetTab({ user, flash, onMutate }: { user: ReturnType<typeof getSessi
       const res = await budgetApi.setBudget(payload) as { success: boolean; message: string }
       if (res.success) { flash('ok', 'บันทึกงบประมาณสำเร็จ'); setShowModal(false); loadBudget(month); invalidateCache('*'); onMutate?.() }
       else flash('err', res.message || 'เกิดข้อผิดพลาด')
-    } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
+    } catch (e: unknown) { flash('err', (e instanceof Error ? e.message : JSON.stringify(e)) || 'เกิดข้อผิดพลาด') }
     finally { setSaving(false) }
   }
 
@@ -2409,37 +2413,44 @@ function HistoryTab({ onMutate }: { onMutate?: () => void }) {
 }
 
 // ─── Category Manager Tab ─────────────────────────────────────────────────────
-type CalcRole = 'qty' | 'price' | 'addend' | 'fixed' | 'note' | 'none'
+type CalcRole = 'qty' | 'qty2' | 'price' | 'addend' | 'fixed' | 'note' | 'none' | 'rate1' | 'rate2'
 type FieldType = 'number' | 'text' | 'select'
 
 interface FieldDraft {
   fieldId: string; label: string; type: FieldType; unit: string
-  placeholder: string; required: boolean; calcRole: CalcRole; options: string[]
+  placeholder: string; required: boolean; calcRole: CalcRole; options: string[]; presetValue?: number
 }
 
-const CALC_ROLES: CalcRole[] = ['qty', 'price', 'addend', 'fixed', 'note', 'none']
+const CALC_ROLES: CalcRole[] = ['qty', 'qty2', 'price', 'addend', 'fixed', 'note', 'none', 'rate1', 'rate2']
 const ROLE_LABELS_CALC: Record<CalcRole, string> = {
-  qty: 'ตัวคูณ/จำนวน', price: 'ราคาต่อหน่วย', addend: 'บวกเพิ่ม',
+  qty: 'ตัวคูณ/จำนวน', qty2: 'จำนวน 2 (OT)', price: 'ราคาต่อหน่วย', addend: 'บวกเพิ่ม',
   fixed: 'ยอดรวมคงที่', note: 'หมายเหตุ', none: 'ไม่ใช้คำนวณ',
+  rate1: 'ค่าคงที่ (ซ่อน) 1', rate2: 'ค่าคงที่ (ซ่อน) 2',
 }
 const ROLE_ICONS_CALC: Record<CalcRole, string> = {
-  qty: 'tag', price: 'sell', addend: 'add_circle_outline',
+  qty: 'tag', qty2: 'tag', price: 'sell', addend: 'add_circle_outline',
   fixed: 'attach_money', note: 'notes', none: 'block',
+  rate1: 'lock', rate2: 'lock',
 }
 const ROLE_COLORS_CALC: Record<CalcRole, string> = {
-  qty: '#3b82f6', price: '#10b981', addend: '#f59e0b',
+  qty: '#3b82f6', qty2: '#60a5fa', price: '#10b981', addend: '#f59e0b',
   fixed: '#8b5cf6', note: '#64748b', none: '#cbd5e1',
+  rate1: '#dc2626', rate2: '#dc2626',
 }
-const FORMULAS = ['qty*price', 'qty*price+addend', 'fixed', 'qty+price']
+const FORMULAS = ['qty*price', 'qty*price+addend', 'qty*price+addend2', 'labor_ot', 'fixed', 'qty+price']
 const FORMULA_LABELS: Record<string, string> = {
   'qty*price':        'จำนวน × ราคาต่อหน่วย',
-  'qty*price+addend': 'จำนวน × ราคา + ส่วนเพิ่ม',
+  'qty*price+addend':  'จำนวน × ราคา + ส่วนเพิ่ม',
+  'qty*price+addend2': 'ยอดที่ 1 × ยอดที่ 2 + ยอดที่ 3',
+  'labor_ot':          'แรงงาน + OT (ค่าคงที่ซ่อน)',
   'fixed':            'ระบุยอดรวมคงที่',
   'qty+price':        'ยอดที่ 1 + ยอดที่ 2',
 }
 const FORMULA_HINTS: Record<string, string> = {
   'qty*price':        'เหมาะกับรายการที่มีจำนวนมาก เช่น ซื้อของชิ้นเล็กเยอะๆ ระบบจะคำนวณ จำนวน × ราคาต่อหน่วย ให้อัตโนมัติ',
-  'qty*price+addend': 'เหมาะกับค่าแรงรายวัน + ค่าล่วงเวลา OT ระบบจะคำนวณ (จำนวน × ราคา) + ค่าเพิ่มเติม',
+  'qty*price+addend':  'เหมาะกับค่าแรงรายวัน + ค่าล่วงเวลา OT ระบบจะคำนวณ (จำนวน × ราคา) + ค่าเพิ่มเติม',
+  'qty*price+addend2': 'เหมาะกับค่าแรงโรงงาน เช่น (จำนวนคน × ราคาต่อวัน) + ค่าล่วงเวลา',
+  'labor_ot':          'ผู้กรอกระบุแค่จำนวนคนและชั่วโมง OT — ค่าแรง/คน และค่า OT/ชม. Admin ล็อคไว้ไม่แสดงหน้ากรอก',
   'fixed':            'เหมาะกับค่าน้ำ ค่าไฟ รายเดือน หรือรายการที่รู้ยอดสรุปอยู่แล้ว ระบุยอดรวมได้เลย',
   'qty+price':        'กรณีมีตัวเลขสองส่วนที่ต้องบวกกันโดยตรง เช่น ค่าวัสดุ + ค่าขนส่ง',
 }
@@ -2456,6 +2467,20 @@ const CATEGORY_TEMPLATES: Record<string, FieldDraft[]> = {
     { fieldId: 'workers', label: 'จำนวน', type: 'number', unit: 'คน', placeholder: '0', required: true, calcRole: 'qty', options: [] },
     { fieldId: 'dailyWage', label: 'ราคาต่อหน่วย', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'price', options: [] },
     { fieldId: 'ot', label: 'ค่าเพิ่มเติม', type: 'number', unit: '฿', placeholder: '0', required: false, calcRole: 'addend', options: [] },
+    { fieldId: 'note', label: 'หมายเหตุ', type: 'text', unit: '', placeholder: '(ถ้ามี)', required: false, calcRole: 'note', options: [] },
+  ],
+  'qty*price+addend2': [
+    { fieldId: 'itemName', label: 'ชื่อรายการ', type: 'text', unit: '', placeholder: 'ระบุชื่อ', required: true, calcRole: 'none', options: [] },
+    { fieldId: 'qty', label: 'ยอดที่ 1', type: 'number', unit: '', placeholder: '0', required: true, calcRole: 'qty', options: [] },
+    { fieldId: 'price', label: 'ยอดที่ 2', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'price', options: [] },
+    { fieldId: 'addend', label: 'ยอดที่ 3', type: 'number', unit: '฿', placeholder: '0', required: false, calcRole: 'addend', options: [] },
+    { fieldId: 'note', label: 'หมายเหตุ', type: 'text', unit: '', placeholder: '(ถ้ามี)', required: false, calcRole: 'note', options: [] },
+  ],
+  'labor_ot': [
+    { fieldId: 'workers', label: 'จำนวนคน', type: 'number', unit: 'คน', placeholder: '0', required: true, calcRole: 'qty', options: [] },
+    { fieldId: 'ot_hours', label: 'ชั่วโมง OT', type: 'number', unit: 'ชม.', placeholder: '0', required: false, calcRole: 'qty2', options: [] },
+    { fieldId: 'daily_rate', label: 'ค่าแรง/คน/วัน', type: 'number', unit: '฿', placeholder: '0', required: true, calcRole: 'rate1', options: [], presetValue: 0 },
+    { fieldId: 'ot_rate', label: 'ค่า OT/ชม.', type: 'number', unit: '฿', placeholder: '0', required: false, calcRole: 'rate2', options: [], presetValue: 0 },
     { fieldId: 'note', label: 'หมายเหตุ', type: 'text', unit: '', placeholder: '(ถ้ามี)', required: false, calcRole: 'note', options: [] },
   ],
   'fixed': [
@@ -2739,13 +2764,17 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
   const previewTotal = useMemo(() => {
     const vals: Record<string, number> = {}
     previewCat.fields.forEach(f => {
-      if (['qty','price','addend','fixed'].includes(f.calcRole)) {
+      if (['qty','qty2','price','addend','fixed'].includes(f.calcRole)) {
         vals[f.calcRole] = parseFloat(previewRow[f.fieldId] || '0') || 0
       }
+      if (f.calcRole === 'rate1') vals['rate1'] = f.presetValue ?? 0
+      if (f.calcRole === 'rate2') vals['rate2'] = f.presetValue ?? 0
     })
-    const { qty = 0, price = 0, addend = 0, fixed = 0 } = vals
+    const { qty = 0, qty2 = 0, price = 0, addend = 0, fixed = 0, rate1 = 0, rate2 = 0 } = vals
     if (previewCat.formula === 'qty*price') return qty * price
     if (previewCat.formula === 'qty*price+addend') return qty * price + addend
+    if (previewCat.formula === 'qty*price+addend2') return qty * price + addend
+    if (previewCat.formula === 'labor_ot') return (qty * rate1) + (qty2 * rate2)
     if (previewCat.formula === 'fixed') return fixed
     if (previewCat.formula === 'qty+price') return qty + price
     return fixed || (qty * price + addend)
@@ -2815,7 +2844,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
 
   function removeField(idx: number) { setFields(prev => prev.filter((_, i) => i !== idx)) }
 
-  function updateField(idx: number, key: keyof FieldDraft, val: string | boolean) {
+  function updateField(idx: number, key: keyof FieldDraft, val: string | boolean | number) {
     setFields(prev => prev.map((f, i) => i === idx ? { ...f, [key]: val } : f))
   }
 
@@ -2836,7 +2865,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
       setShowModal(false)
       loadCats()
       onCatChange()
-    } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
+    } catch (e: unknown) { flash('err', (e instanceof Error ? e.message : JSON.stringify(e)) || 'เกิดข้อผิดพลาด') }
     finally { setSaving(false) }
   }
 
@@ -2849,7 +2878,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
       setDeleteTarget(null)
       loadCats()
       onCatChange()
-    } catch (e: unknown) { flash('err', (e as Error).message || 'เกิดข้อผิดพลาด') }
+    } catch (e: unknown) { flash('err', (e instanceof Error ? e.message : JSON.stringify(e)) || 'เกิดข้อผิดพลาด') }
     finally { setDeleting(false) }
   }
 
@@ -3080,6 +3109,13 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
                       
                       <div style={{ flex: 1, minWidth: 150 }}>
                         <input type="text" className="form-input" style={{ fontSize: 13, padding: '7px 10px' }} placeholder="ชื่อฟิลด์ที่จะแสดงให้คนกรอกเห็น" value={f.label} onChange={e => updateField(idx, 'label', e.target.value)} />
+                        {(f.calcRole === 'rate1' || f.calcRole === 'rate2') && (
+                          <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>ค่าคงที่ (฿):</span>
+                            <input type="number" className="form-input" style={{ fontSize: 12, padding: '4px 8px', width: 90 }}
+                              placeholder="0" value={f.presetValue ?? ''} onChange={e => updateField(idx, 'presetValue', parseFloat(e.target.value) || 0)} />
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ width: 130 }}>

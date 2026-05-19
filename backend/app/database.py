@@ -21,6 +21,16 @@ async def connect_db():
     await db.inventory_transactions.create_index("itemId")
     await db.inventory_transactions.create_index("createdAt")
     await db.warehouses.create_index("id", unique=True)
+    # Prevent duplicate B2B accounts from UI/import with same business identity
+    await db.crm_accounts.create_index(
+        [("nameNorm", 1), ("countryNorm", 1)],
+        unique=True,
+        name="uniq_crm_account_name_country_norm",
+        partialFilterExpression={
+            "nameNorm": {"$exists": True, "$type": "string"},
+            "countryNorm": {"$exists": True, "$type": "string"},
+        },
+    )
 
 
 async def close_db():

@@ -90,16 +90,41 @@ async def build_report_data(cat_id: str, period_type: str, ref_date: datetime) -
     expense_cursor = db.expenses.find(query).sort("date_iso", 1)
     expenses = await expense_cursor.to_list(None)
 
+    usernames = set()
+    for exp in expenses:
+        if exp.get("recorder"):
+            usernames.add(exp["recorder"])
+        if exp.get("approvedBy"):
+            usernames.add(exp["approvedBy"])
+
+    user_map: dict[str, str] = {}
+    if usernames:
+        async for u in db.users.find(
+            {"username": {"$in": list(usernames)}},
+            {"username": 1, "firstName": 1, "lastName": 1, "name": 1},
+        ):
+            fn = u.get("firstName", "").strip()
+            ln = u.get("lastName", "").strip()
+            real_name = f"{fn} {ln}".strip() or u.get("name", "").strip() or u.get("username", "")
+            user_map[u["username"]] = real_name
+
+    def _real_name(username: str, explicit_name: str = "") -> str:
+        return user_map.get(username, explicit_name or username)
+
     # ─── สร้าง records ────────────────────────────────────────────
     records = []
     for exp in expenses:
+        recorder_username = exp.get("recorder", "")
+        approver_username = exp.get("approvedBy", "")
         records.append({
             "id":       str(exp.get("_id", "")),
             "date":     exp.get("date", exp.get("date_iso", "")[:10] if exp.get("date_iso") else ""),
             "detail":   exp.get("detail", exp.get("note", "")),
             "amount":   float(exp.get("amount", 0)),
-            "recorder": exp.get("recorderName", exp.get("recorder", "")),
-            "approver": exp.get("approverName", exp.get("approvedBy", "")),
+            "recorder": _real_name(recorder_username, exp.get("recorderName", "")),
+            "recorderName": _real_name(recorder_username, exp.get("recorderName", "")),
+            "approver": _real_name(approver_username, exp.get("approvedByName", exp.get("approverName", ""))),
+            "approverName": _real_name(approver_username, exp.get("approvedByName", exp.get("approverName", ""))),
         })
 
     total = sum(r["amount"] for r in records)

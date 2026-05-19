@@ -242,10 +242,30 @@ def calc_total_dynamic(cat: dict, row: dict) -> tuple[float, str]:
     addend = vals.get("addend", 0.0)
     fixed  = vals.get("fixed",  0.0)
 
+    # rate1/rate2 ดึงจาก presetValue ใน field definition (ไม่อยู่ใน row)
+    for f in fields:
+        role = f.get("calcRole", "none")
+        if role == "rate1":
+            vals["rate1"] = float(f.get("presetValue", 0) or 0)
+        elif role == "rate2":
+            vals["rate2"] = float(f.get("presetValue", 0) or 0)
+        elif role == "qty2":
+            fid = f.get("fieldId", "")
+            try: vals["qty2"] = float(row.get(fid, 0) or 0)
+            except: vals["qty2"] = 0.0
+
+    qty2   = vals.get("qty2",  0.0)
+    rate1  = vals.get("rate1", 0.0)
+    rate2  = vals.get("rate2", 0.0)
+
     if formula == "qty*price":
         total = qty * price
     elif formula == "qty*price+addend":
         total = qty * price + addend
+    elif formula == "qty*price+addend2":
+        total = qty * price + addend
+    elif formula == "labor_ot":
+        total = (qty * rate1) + (qty2 * rate2)
     elif formula == "fixed":
         total = fixed
     elif formula == "qty+price":
@@ -254,6 +274,13 @@ def calc_total_dynamic(cat: dict, row: dict) -> tuple[float, str]:
         total = fixed or (qty * price + addend)
 
     # สร้าง detail string แบบมี label — "label: value  label: value"
+    def _is_number_like(v) -> bool:
+        try:
+            float(str(v).replace(",", "").strip())
+            return True
+        except (ValueError, TypeError):
+            return False
+
     name_part = ""
     detail_parts = []
     for f in fields:
@@ -261,16 +288,21 @@ def calc_total_dynamic(cat: dict, row: dict) -> tuple[float, str]:
         fid   = f.get("fieldId", "")
         label = f.get("label", "")
         unit  = f.get("unit", "")
+        if unit == "__user__":
+            unit = row.get(f"__unit_{fid}", "") or ""
         if role == "note":
             continue
         val = row.get(fid, "")
         if not val:
             continue
         if role == "none":
-            # ชื่อรายการ — ใส่เป็น prefix ไม่มี label
-            name_part = str(val)
+            val_str = str(val).strip()
+            if unit and _is_number_like(val_str):
+                name_part = f"{val_str} {unit}"
+            else:
+                name_part = val_str
         else:
-            detail_parts.append(f"{label}: {val}{unit}")
+            detail_parts.append(f"{label}: {val}{(' ' + unit) if unit else ''}")
     if name_part and detail_parts:
         detail = name_part + "  " + "  ".join(detail_parts)
     elif name_part:
@@ -300,3 +332,5 @@ def _serialize(doc: dict) -> dict:
         "createdAt":    doc.get("createdAt", ""),
         "createdBy":    doc.get("createdBy", ""),
     }
+
+

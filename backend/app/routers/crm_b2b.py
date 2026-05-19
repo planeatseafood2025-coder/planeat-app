@@ -1,9 +1,11 @@
+from pydantic import BaseModel
 import re
 import uuid
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Query, Depends, HTTPException, BackgroundTasks
+from pymongo.errors import DuplicateKeyError
 from ..models.crm_b2b import (
     CrmAccountCreate, CrmAccountUpdate,
     CrmContactCreate, CrmContactUpdate,
@@ -19,7 +21,11 @@ from ..services.email_service import _send_email_sync
 router = APIRouter(prefix="/api/crm-b2b", tags=["crm-b2b"])
 
 
-# ── Accounts ──────────────────────────────────────────────────────────────────
+def _norm_text(v: Optional[str]) -> str:
+    return (v or "").strip().lower()
+
+
+# Accounts
 
 @router.get("/accounts")
 async def list_accounts(
@@ -29,6 +35,8 @@ async def list_accounts(
     status: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
     sort: Optional[str] = Query("value-desc"),
+    page: int = Query(1, ge=1),
+    perPage: int = Query(20, ge=1, le=200),
     current: dict = Depends(get_current_user),
 ):
     db = get_db()
@@ -56,7 +64,15 @@ async def list_accounts(
         accounts.sort(key=lambda a: a.get("name", "").lower())
     elif sort == "recent":
         accounts.sort(key=lambda a: a.get("lastContact", ""), reverse=True)
-    return {"accounts": accounts}
+    total = len(accounts)
+    start = (page - 1) * perPage
+    end = start + perPage
+    return {
+        "accounts": accounts[start:end],
+        "total": total,
+        "page": page,
+        "totalPages": max(1, -(-total // perPage)),
+    }
 
 
 @router.get("/accounts/{account_id}")
@@ -73,12 +89,31 @@ async def get_account(account_id: str, current: dict = Depends(get_current_user)
 async def create_account(req: CrmAccountCreate, current: dict = Depends(get_current_user)):
     db = get_db()
     doc = req.dict()
+    # Guard against duplicate account created from UI/import
+    duplicate = await db.crm_accounts.find_one(
+        {
+            "nameNorm": _norm_text(doc.get("name")),
+            "countryNorm": _norm_text(doc.get("country")),
+        },
+        {"_id": 1},
+    )
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "มีบริษัทนี้อยู่แล้วในระบบ", "existingId": str(duplicate["_id"])},
+        )
+
     doc["_id"] = str(uuid.uuid4())
     doc["dealsOpen"] = 0
     doc["dealsValueThb"] = 0
     doc["createdAt"] = datetime.now(timezone.utc).isoformat()
     doc["createdBy"] = current.get("sub", "")
-    await db.crm_accounts.insert_one(doc)
+    doc["nameNorm"] = _norm_text(doc.get("name"))
+    doc["countryNorm"] = _norm_text(doc.get("country"))
+    try:
+        await db.crm_accounts.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="มีบริษัทนี้อยู่แล้วในระบบ")
     return {"success": True, "_id": doc["_id"]}
 
 
@@ -98,7 +133,7 @@ async def delete_account(account_id: str, current: dict = Depends(get_current_us
     return {"success": True}
 
 
-# ── Overview stats + globe pins ───────────────────────────────────────────────
+# Overview stats + globe pins
 
 @router.get("/overview")
 async def get_overview(current: dict = Depends(get_current_user)):
@@ -158,11 +193,13 @@ async def get_overview(current: dict = Depends(get_current_user)):
     }
 
 
-# ── Contacts ──────────────────────────────────────────────────────────────────
+# Contacts
 
 @router.get("/contacts")
 async def list_contacts(
     accountId: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    perPage: int = Query(20, ge=1, le=200),
     current: dict = Depends(get_current_user),
 ):
     db = get_db()
@@ -172,7 +209,15 @@ async def list_contacts(
     contacts = await db.crm_contacts_b2b.find(query).to_list(None)
     for c in contacts:
         c["_id"] = str(c["_id"])
-    return {"contacts": contacts}
+    total = len(contacts)
+    start = (page - 1) * perPage
+    end = start + perPage
+    return {
+        "contacts": contacts[start:end],
+        "total": total,
+        "page": page,
+        "totalPages": max(1, -(-total // perPage)),
+    }
 
 
 @router.post("/contacts")
@@ -200,7 +245,7 @@ async def delete_contact(contact_id: str, current: dict = Depends(get_current_us
     return {"success": True}
 
 
-# ── Email Campaign ────────────────────────────────────────────────────────────
+# Email Campaign
 
 def _fill_template(template: str, ctx: dict) -> str:
     return re.sub(r'\{\{(\w+)\}\}', lambda m: ctx.get(m.group(1), m.group(0)), template)
@@ -333,7 +378,7 @@ async def campaign_status(campaign_id: str, current: dict = Depends(get_current_
     return campaign
 
 
-# ── Deals ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Deals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/deals")
 async def list_deals(
@@ -409,7 +454,7 @@ async def delete_deal(deal_id: str, current: dict = Depends(get_current_user)):
     return {"success": True}
 
 
-# ── Activities ────────────────────────────────────────────────────────────────
+# â”€â”€ Activities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/activities")
 async def list_activities(
@@ -451,7 +496,7 @@ async def delete_activity(activity_id: str, current: dict = Depends(get_current_
     return {"success": True}
 
 
-# ── Reminders ─────────────────────────────────────────────────────────────────
+# â”€â”€ Reminders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/reminders")
 async def list_reminders(
@@ -498,3 +543,101 @@ async def delete_reminder(reminder_id: str, current: dict = Depends(get_current_
     db = get_db()
     await db.crm_reminders_b2b.delete_one({"_id": reminder_id})
     return {"success": True}
+
+
+class SendContactEmailRequest(BaseModel):
+    to: str
+    toName: str = ""
+    subject: str
+    body: str
+
+@router.post("/send-contact-email")
+async def send_contact_email(req: SendContactEmailRequest, current: dict = Depends(get_current_user)):
+    """ส่งอีเมลหาผู้ติดต่อโดยตรงจากหน้า Contact detail"""
+    import asyncio
+    db = get_db()
+    smtp_doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
+    sender_name = current.get("name") or current.get("sub", "PlaNeat")
+    html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'></head>
+<body style='font-family:Segoe UI,sans-serif;background:#f4f7fa;margin:0;padding:0;'>
+  <div style='max-width:600px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,0.07);'>
+    <div style='background:linear-gradient(135deg,#0f172a,#1e3a8a);padding:28px 30px;'>
+      <h1 style='margin:0;color:#fff;font-size:20px;'>PlaNeat Support</h1>
+      <p style='margin:6px 0 0;color:#93c5fd;font-size:13px;'>ข้อความจาก {sender_name}</p>
+    </div>
+    <div style='padding:30px;'>
+      <p style='margin:0 0 6px;font-size:14px;color:#475569;'>เรียน <strong>{req.toName or req.to}</strong>,</p>
+      <div style='margin-top:16px;font-size:14px;color:#1e293b;line-height:1.7;white-space:pre-wrap;'>{req.body}</div>
+    </div>
+    <div style='background:#f1f5f9;padding:16px 30px;text-align:center;font-size:12px;color:#64748b;'>
+      PlaNeat Support - ระบบจัดการสำนักงาน
+    </div>
+  </div>
+</body></html>"""
+    try:
+        await asyncio.to_thread(_send_email_sync, req.to, req.subject, html, smtp_doc)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+# â”€â”€â”€ CRM B2B Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+CRM_B2B_SETTINGS_ID = "crm_b2b_settings"
+
+@router.get("/settings")
+async def get_crm_settings(current: dict = Depends(get_current_user)):
+    db = get_db()
+    doc = await db.system_settings.find_one({"_id": CRM_B2B_SETTINGS_ID}) or {}
+    doc.pop("_id", None)
+    return {"success": True, "settings": doc}
+
+class CrmB2bSettingsRequest(BaseModel):
+    aiProvider: Optional[str] = None
+    aiModel: Optional[str] = None
+    aiApiKey: Optional[str] = None
+    smtpEmail: Optional[str] = None
+    smtpPassword: Optional[str] = None
+    smtpServer: Optional[str] = None
+    smtpPort: Optional[int] = None
+    smtpFromName: Optional[str] = None
+    lineGroupId: Optional[str] = None
+    lineOaToken: Optional[str] = None
+    lineNotifyToken: Optional[str] = None
+
+@router.put("/settings")
+async def update_crm_settings(req: CrmB2bSettingsRequest, current: dict = Depends(get_current_user)):
+    db = get_db()
+    updates = {k: v for k, v in req.dict().items() if v is not None}
+    updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    updates["updatedBy"] = current.get("sub", "")
+    await db.system_settings.update_one(
+        {"_id": CRM_B2B_SETTINGS_ID},
+        {"$set": updates},
+        upsert=True,
+    )
+    return {"success": True}
+
+@router.post("/settings/test-email")
+async def test_crm_email(current: dict = Depends(get_current_user)):
+    import asyncio as _asyncio
+    db = get_db()
+    doc = await db.system_settings.find_one({"_id": CRM_B2B_SETTINGS_ID}) or {}
+    smtp_conf = {
+        "smtpServer": doc.get("smtpServer", "smtp.gmail.com"),
+        "smtpPort": doc.get("smtpPort", 587),
+        "smtpEmail": doc.get("smtpEmail", ""),
+        "smtpPassword": doc.get("smtpPassword", ""),
+    }
+    test_to = current.get("email") or doc.get("smtpEmail", "")
+    if not test_to:
+        return {"success": False, "message": "ไม่มีอีเมลสำหรับทดสอบ"}
+    try:
+        await _asyncio.to_thread(
+            _send_email_sync, test_to,
+            "PlaNeat CRM - ทดสอบการส่งอีเมล",
+            "<p>อีเมล CRM B2B ของคุณทำงานปกติ</p>",
+            smtp_conf,
+        )
+        return {"success": True, "message": f"ส่งทดสอบถึง {test_to} สำเร็จ"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

@@ -736,7 +736,7 @@ async def _build_period_summary_flex(
             "contents": [
                 {"type": "text", "text": "หมวด",          "size": "xs", "flex": 4, "weight": "bold", "color": "#475569"},
                 {"type": "text", "text": col1_label,      "size": "xs", "flex": 3, "weight": "bold", "color": "#475569", "align": "end"},
-                {"type": "text", "text": "ใช้ไปทั้งหมด",  "size": "xs", "flex": 4, "weight": "bold", "color": "#475569", "align": "end"},
+                {"type": "text", "text": "สถานะเดือน",    "size": "xs", "flex": 4, "weight": "bold", "color": "#475569", "align": "end"},
             ]
         })
     else:
@@ -796,13 +796,29 @@ async def _build_period_summary_flex(
             today_pct       = today_spent / month_budget * 100 if month_budget > 0 else 0
 
             # สี today_pct
-            if no_budget:     today_pct_color = "#94a3b8"
-            elif today_pct > 20: today_pct_color = "#dc2626"
-            elif today_pct > 10: today_pct_color = "#d97706"
-            else:             today_pct_color = "#16a34a"
+            if no_budget:
+                today_pct_color = "#94a3b8"
+            elif today_pct > 100:
+                today_pct_color = "#dc2626"
+            elif today_pct > 80:
+                today_pct_color = "#d97706"
+            else:
+                today_pct_color = "#16a34a"
 
-            budget_sub   = f"งบ ฿{_fmt(month_budget)}" if not no_budget else "ยังไม่ได้ตั้งงบ"
+            budget_sub   = f"งบเดือน ฿{_fmt(month_budget)}" if not no_budget else "ยังไม่ได้ตั้งงบ"
             budget_color = "#64748b" if not no_budget else "#94a3b8"
+            month_weeks = max(4, len(calendar.monthcalendar(now.year, now.month)))
+            weekly_budget = (month_budget / month_weeks) if month_budget > 0 else 0.0
+            week_pct = (today_spent / weekly_budget * 100) if weekly_budget > 0 else 0.0
+
+            if no_budget:
+                week_pct_color = "#94a3b8"
+            elif week_pct > 100:
+                week_pct_color = "#dc2626"
+            elif week_pct > 80:
+                week_pct_color = "#d97706"
+            else:
+                week_pct_color = "#16a34a"
 
             body_items.append({
                 "type": "box", "layout": "horizontal", "paddingAll": "4px",
@@ -813,15 +829,15 @@ async def _build_period_summary_flex(
                         {"type": "text", "text": f"{pct_icon} {cat_label}", "size": "xs", "color": "#1e293b", "wrap": True, "weight": "bold"},
                         {"type": "text", "text": budget_sub, "size": "xxs", "color": budget_color},
                     ]},
-                    # คอลัมน์ 2: วันนี้ + % ของงบ
+                    # คอลัมน์ 2: สัปดาห์นี้ + % ของงบสัปดาห์
                     {"type": "box", "layout": "vertical", "flex": 3, "contents": [
-                        {"type": "text", "text": f"฿{_fmt(today_spent)}", "size": "xs", "align": "end", "color": today_pct_color},
-                        {"type": "text", "text": f"{today_pct:.0f}% ของงบ" if not no_budget else "—", "size": "xxs", "align": "end", "color": today_pct_color},
+                        {"type": "text", "text": f"฿{_fmt(today_spent)}", "size": "xs", "align": "end", "color": week_pct_color},
+                        {"type": "text", "text": f"{week_pct:.0f}% ของงบสัปดาห์" if not no_budget else "—", "size": "xxs", "align": "end", "color": week_pct_color},
                     ]},
-                    # คอลัมน์ 3: ใช้ไปทั้งหมด + % ของงบ
+                    # คอลัมน์ 3: สถานะเดือน (สะสม/คงเหลือ)
                     {"type": "box", "layout": "vertical", "flex": 4, "contents": [
                         {"type": "text", "text": f"฿{_fmt(spent_month)}", "size": "xs", "align": "end", "color": pct_color},
-                        {"type": "text", "text": f"{pct_used:.0f}% ของงบ" if not no_budget else "—", "size": "xxs", "align": "end", "color": pct_color},
+                        {"type": "text", "text": (f"สะสม {pct_used:.0f}% | เหลือ {'-' if remaining < 0 else ''}฿{_fmt(abs(remaining))}") if not no_budget else "—", "size": "xxs", "align": "end", "color": ("#16a34a" if remaining >= 0 else "#dc2626")},
                     ]},
                 ]
             })
@@ -853,19 +869,43 @@ async def _build_period_summary_flex(
     body_items.append({
         "type": "box", "layout": "horizontal", "margin": "sm",
         "contents": [
-            {"type": "text", "text": "รวมทั้งหมด", "size": "sm", "weight": "bold", "color": "#1e293b", "flex": 5},
+            {"type": "text", "text": "รวมสัปดาห์", "size": "sm", "weight": "bold", "color": "#1e293b", "flex": 5},
             {"type": "text", "text": f"฿{_fmt(grand_spent)}", "size": "sm", "weight": "bold", "color": "#1e3a8a", "flex": 5, "align": "end"},
         ]
     })
+    if daily:
+        total_month_budget = sum(float(budgets_cfg.get(r["catKey"], {}).get("monthly", 0)) for r in expenses_rows)
+        total_month_spent = sum(float(spent_month_map.get(r["catKey"], 0.0)) for r in expenses_rows)
+        total_month_remain = total_month_budget - total_month_spent
+        body_items.append({
+            "type": "box", "layout": "horizontal", "margin": "xs",
+            "contents": [
+                {"type": "text", "text": "รวมสะสมเดือน", "size": "sm", "weight": "bold", "color": "#334155", "flex": 5},
+                {"type": "text", "text": f"฿{_fmt(total_month_spent)}", "size": "sm", "weight": "bold", "color": "#334155", "flex": 5, "align": "end"},
+            ]
+        })
+        body_items.append({
+            "type": "box", "layout": "horizontal", "margin": "xs",
+            "contents": [
+                {"type": "text", "text": "รวมคงเหลือเดือน", "size": "sm", "weight": "bold", "color": "#334155", "flex": 5},
+                {"type": "text", "text": f"{'-' if total_month_remain < 0 else ''}฿{_fmt(abs(total_month_remain))}", "size": "sm", "weight": "bold", "color": ("#16a34a" if total_month_remain >= 0 else "#dc2626"), "flex": 5, "align": "end"},
+            ]
+        })
 
     # footer contents
     footer_contents: list = []
     if daily:
-        dl_url = pdf_url or f"{FRONTEND_URL}/expense-control?tab=history"
+        now = datetime.now()
+        month_start = now.replace(day=1).strftime("%Y-%m-%d")
+        month_end = now.strftime("%Y-%m-%d")
+        dl_url = pdf_url or (
+            f"{FRONTEND_URL}/api/reports/history-pdf-public"
+            f"?catKey=all&dateFrom={month_start}&dateTo={month_end}&mode=detail"
+        )
         footer_contents.append({
             "type": "button", "style": "primary", "margin": "sm",
             "color": "#1e3a8a",
-            "action": {"type": "uri", "label": "📋 ดูรายงานวันนี้", "uri": dl_url},
+            "action": {"type": "uri", "label": "📄 ดูเอกสารประจำเดือน", "uri": dl_url},
         })
 
     return {
@@ -1130,85 +1170,130 @@ async def preview_daily_summary_to_uid(line_uid: str) -> bool:
 
 
 async def preview_weekly_summary_to_uid(line_uid: str) -> bool:
-    """ส่ง preview สรุปสัปดาห์นี้ไปที่ lineUid (ใช้ข้อมูลจริงจาก DB)"""
-    now        = datetime.now()
-    week_start = now - __import__('datetime').timedelta(days=now.weekday())
+    """ส่ง preview สรุปค่าใช้จ่ายรายสัปดาห์ไปยัง lineUid โดยไม่แก้ข้อมูลจริงใน DB"""
+    now = datetime.now()
+    week_start = now - timedelta(days=now.weekday())
     week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_end   = week_start + timedelta(days=6)
-    from_str   = week_start.strftime("%Y-%m-%d")
-    to_str     = week_end.strftime("%Y-%m-%d")
+    week_end = week_start + timedelta(days=6)
+    from_str = week_start.strftime("%Y-%m-%d")
+    to_str = week_end.strftime("%Y-%m-%d")
 
     rows, grand = await _query_period_expenses(from_str, to_str)
 
-    # ถ้าไม่มีรายการสัปดาห์นี้ ใช้ข้อมูลจำลอง
     if not rows:
         db = get_db()
-        _my   = f"{now.month:02d}/{now.year}"
-        _bdoc = await db.budgets.find_one({"monthYear": _my}) or {}
-        _budgets = _bdoc.get("budgets", {})
+        month_key = f"{now.month:02d}/{now.year}"
+        budget_doc = await db.budgets.find_one({"monthYear": month_key}) or {}
+        budgets = budget_doc.get("budgets", {})
         from ..services.category_service import get_all_categories
-        cats  = await get_all_categories()
-        rows  = []
+        cats = await get_all_categories()
+        rows = []
         for c in cats[:4]:
-            ck = c["id"]
-            rows.append({"category": c["name"], "catKey": ck, "spent": 12500.0,
-                         "budget": float(_budgets.get(ck, {}).get("monthly", 0))})
+            cat_key = c["id"]
+            rows.append({
+                "category": c["name"],
+                "catKey": cat_key,
+                "spent": 12500.0,
+                "budget": float(budgets.get(cat_key, {}).get("monthly", 0)),
+            })
         grand = sum(r["spent"] for r in rows)
 
+    db = get_db()
+    cfg_doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
+    es = cfg_doc.get("expenseSettings", {})
+    if not es.get("autoNotify", {}).get("allEnabled", True):
+        return False
+    if not es.get("autoNotify", {}).get("weeklySummary", True):
+        return False
+    if not es.get("lineNotify", {}).get("group", True):
+        return False
+
     d_from = f"{week_start.day}/{week_start.month}/{week_start.year+543}"
-    d_to   = f"{week_end.day}/{week_end.month}/{week_end.year+543}"
-    period_label = f"{d_from} – {d_to} (ตัวอย่าง)"
+    d_to = f"{week_end.day}/{week_end.month}/{week_end.year+543}"
+    period_label = f"{d_from} - {d_to}"
+
+    month_start = week_end.replace(day=1)
+    last_day = calendar.monthrange(week_end.year, week_end.month)[1]
+    month_end = week_end.replace(day=last_day)
+    monthly_pdf_url = (
+        f"{FRONTEND_URL}/api/reports/history-pdf-public"
+        f"?catKey=all&dateFrom={month_start.strftime('%Y-%m-%d')}"
+        f"&dateTo={month_end.strftime('%Y-%m-%d')}&mode=detail"
+    )
 
     flex = await _build_period_summary_flex(
-        period_label, rows, grand,
-        title="📋 สรุปค่าใช้จ่ายรายสัปดาห์", daily=True, col1_label="สัปดาห์นี้"
+        period_label=period_label,
+        expenses_rows=rows,
+        grand_spent=grand,
+        title="📋 สรุปค่าใช้จ่ายรายสัปดาห์",
+        daily=True,
+        pdf_url=monthly_pdf_url,
+        col1_label="ใช้สัปดาห์",
     )
-    db  = get_db()
-    doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
-    token = doc.get("mainLineOa", {}).get("token", "")
+
+    token = cfg_doc.get("mainLineOa", {}).get("token", "")
     if not token or not line_uid:
         return False
     return await _push(token, line_uid, [flex])
 
-
 async def notify_weekly_summary(week_start: datetime, week_end: datetime = None) -> None:
-    """ส่งสรุปค่าใช้จ่ายรายสัปดาห์ไปกลุ่ม LINE OA"""
+    """ส่งสรุปค่าใช้จ่ายรายสัปดาห์ไปกลุ่ม LINE OA พร้อม logging ที่ตรวจสอบได้"""
+    print(f"[LINE_WEEKLY] weekly_started week_start={week_start} week_end={week_end}")
     token, gid = await _get_expense_group()
     if not token or not gid:
         db = get_db()
         _doc = await db.system_settings.find_one({"_id": "system_settings"}) or {}
         token = _doc.get("mainLineOa", {}).get("token", "")
-        gid   = _doc.get("mainLineOa", {}).get("targetId", "")
+        gid = _doc.get("mainLineOa", {}).get("targetId", "")
     if not token or not gid:
-        return
+        print("[LINE_WEEKLY] weekly_push_failed reason=missing_token_or_group")
+        raise RuntimeError("weekly_push_failed_missing_token_or_group")
 
     if week_end is None:
         week_end = week_start + timedelta(days=6)
-    from_str  = week_start.strftime("%Y-%m-%d")
-    to_str    = week_end.strftime("%Y-%m-%d")
+    from_str = week_start.strftime("%Y-%m-%d")
+    to_str = week_end.strftime("%Y-%m-%d")
     rows, grand = await _query_period_expenses(from_str, to_str)
 
     d_from = f"{week_start.day}/{week_start.month}/{week_start.year+543}"
-    d_to   = f"{week_end.day}/{week_end.month}/{week_end.year+543}"
-    period_label = f"{d_from} – {d_to}"
-
-    # ถ้าข้ามเดือน ไม่แสดงงบเปรียบเทียบ (เพราะงบคนละเดือน)
-    cross_month = week_start.month != week_end.month
-    title = "📋 สรุปค่าใช้จ่าย" + (" (ต้นเดือน)" if cross_month and week_start.day == 1 else "รายสัปดาห์")
+    d_to = f"{week_end.day}/{week_end.month}/{week_end.year+543}"
+    period_label = f"{d_from} - {d_to}"
 
     if not rows:
-        msg = {"type": "text", "text": f"{title} {period_label}\n\n— ไม่พบรายการในช่วงนี้ —"}
-        await _push(token, gid, [msg])
+        msg = {"type": "text", "text": f"📋 สรุปค่าใช้จ่ายรายสัปดาห์ {period_label}\n\n— ไม่พบรายการในช่วงนี้ —"}
+        ok = await _push(token, gid, [msg])
+        if not ok:
+            print("[LINE_WEEKLY] weekly_push_failed reason=push_returned_false_empty_rows")
+            raise RuntimeError("weekly_push_failed_empty_rows")
+        print("[LINE_WEEKLY] weekly_push_success empty_rows=True")
         return
 
-    flex = await _build_period_summary_flex(
-        period_label, rows, grand,
-        title=title, daily=not cross_month, col1_label="ช่วงนี้"
+    # Monthly document link (detail mode) for weekly footer CTA
+    month_start = week_end.replace(day=1)
+    last_day = calendar.monthrange(week_end.year, week_end.month)[1]
+    month_end = week_end.replace(day=last_day)
+    monthly_pdf_url = (
+        f"{FRONTEND_URL}/api/reports/history-pdf-public"
+        f"?catKey=all&dateFrom={month_start.strftime('%Y-%m-%d')}"
+        f"&dateTo={month_end.strftime('%Y-%m-%d')}&mode=detail"
     )
-    await _push(token, gid, [flex])
 
+    flex = await _build_period_summary_flex(
+        period_label=period_label,
+        expenses_rows=rows,
+        grand_spent=grand,
+        title="📋 สรุปค่าใช้จ่ายรายสัปดาห์",
+        daily=True,
+        pdf_url=monthly_pdf_url,
+        col1_label="ใช้สัปดาห์",
+    )
+    print("[LINE_WEEKLY] weekly_payload_built")
 
-# ─── Event: budget over threshold ────────────────────────────────────────────
+    ok = await _push(token, gid, [flex])
+    if not ok:
+        print("[LINE_WEEKLY] weekly_push_failed reason=push_returned_false")
+        raise RuntimeError("weekly_push_failed")
+    print("[LINE_WEEKLY] weekly_push_success")
 
 async def notify_budget_warning(cat_name: str, pct: float, spent: float, budget: float, cat_key: str = "") -> None:
     """แจ้งเตือนเมื่อใช้งบเกิน 80% → accounting_manager + ผู้มีสิทธิ์ในหมวดนั้น"""

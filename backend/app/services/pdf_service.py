@@ -392,25 +392,47 @@ def generate_history_pdf(
     story.append(sum_tbl)
     story.append(Spacer(1, 5 * mm))
 
-    # ─── Category summary (when "all") ───────────────────────────────────────
+    # ─── Executive summary by category (when "all") ─────────────────────────
     if categories_summary:
-        cs = categories_summary
-        cat_headers = [Paragraph(h, st_sumth) for h in ["หมวดหมู่", "จำนวนรายการ", "ยอดรวม (฿)"]]
-        cat_rows = [cat_headers]
-        for c in sorted(cs, key=lambda x: -x.get("total", 0)):
-            cat_rows.append([
+        exec_headers = [Paragraph(h, st_sumth) for h in [
+            "หมวด",
+            "ใช้สะสมเดือน (฿)",
+            "งบเดือน (฿)",
+            "คงเหลือเดือน (฿)",
+            "%ใช้สะสมเดือน",
+        ]]
+        exec_rows = [exec_headers]
+        total_used = 0.0
+        total_monthly_budget = 0.0
+
+        for c in sorted(categories_summary, key=lambda x: -x.get("total", 0)):
+            total_val = float(c.get("total", 0) or 0)
+            budget_val = float(c.get("monthlyBudget", 0) or 0)
+            remaining_val = c.get("monthRemaining")
+            pct_val = c.get("monthPct")
+            total_used += total_val
+            total_monthly_budget += budget_val
+            exec_rows.append([
                 Paragraph(c.get("name", ""), st_sumtd),
-                Paragraph(str(c.get("count", 0)), S("sc", fontSize=8, textColor=C_BLACK, alignment=1, leading=11)),
-                Paragraph(_fmt(c.get("total", 0)), st_sumtdr),
+                Paragraph(_fmt(total_val), st_sumtdr),
+                Paragraph(_fmt(budget_val) if budget_val > 0 else "-", st_sumtdr),
+                Paragraph(_fmt(remaining_val) if remaining_val is not None else "-", st_sumtdr),
+                Paragraph(f"{pct_val:.1f}%" if pct_val is not None else "-", st_sumtdr),
             ])
-        cat_rows.append([
-            Paragraph("รวมทั้งสิ้น", st_total),
-            Paragraph(str(len(records)), st_totalr),
-            Paragraph(_fmt(grand_total), st_totalr),
+
+        total_remaining = total_monthly_budget - total_used if total_monthly_budget > 0 else None
+        total_pct = (total_used / total_monthly_budget * 100.0) if total_monthly_budget > 0 else None
+        exec_rows.append([
+            Paragraph("หมวดหมู่รวม", st_total),
+            Paragraph(_fmt(total_used), st_totalr),
+            Paragraph(_fmt(total_monthly_budget) if total_monthly_budget > 0 else "-", st_totalr),
+            Paragraph(_fmt(total_remaining) if total_remaining is not None else "-", st_totalr),
+            Paragraph(f"{total_pct:.1f}%" if total_pct is not None else "-", st_totalr),
         ])
-        cw = [page_w * 0.5, page_w * 0.2, page_w * 0.3]
-        cat_tbl = Table(cat_rows, colWidths=cw)
-        cat_ts = TableStyle([
+
+        exec_cw = [page_w * 0.34, page_w * 0.18, page_w * 0.16, page_w * 0.16, page_w * 0.16]
+        exec_tbl = Table(exec_rows, colWidths=exec_cw, repeatRows=1)
+        exec_ts = TableStyle([
             ("BACKGROUND",    (0, 0), (-1, 0),  C_MID_BLUE),
             ("FONTNAME",      (0, 0), (-1, 0),  font),
             ("GRID",          (0, 0), (-1, -1), 0.3, C_BORDER),
@@ -419,17 +441,17 @@ def generate_history_pdf(
             ("TOPPADDING",    (0, 0), (-1, -1), 5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-            ("ALIGN",         (1, 1), (2, -1),  "RIGHT"),
-            ("BACKGROUND",    (0,-1), (-1, -1), C_TOTAL_BG),
-            ("FONTNAME",      (0,-1), (-1, -1), font),
+            ("ALIGN",         (1, 1), (-1, -1), "RIGHT"),
+            ("BACKGROUND",    (0, -1), (-1, -1), C_TOTAL_BG),
+            ("FONTNAME",      (0, -1), (-1, -1), font),
         ])
-        for ri in range(1, len(cat_rows) - 1):
+        for ri in range(1, len(exec_rows) - 1):
             if ri % 2 == 0:
-                cat_ts.add("BACKGROUND", (0, ri), (-1, ri), C_ALT_ROW)
-        cat_tbl.setStyle(cat_ts)
+                exec_ts.add("BACKGROUND", (0, ri), (-1, ri), C_ALT_ROW)
+        exec_tbl.setStyle(exec_ts)
         story.append(KeepTogether([
-            Paragraph("สรุปตามหมวดหมู่", S("csub", fontSize=9, textColor=C_DARK_BLUE, fontName=font, leading=13, spaceAfter=3)),
-            cat_tbl,
+            Paragraph("สรุปตามหมวดหมู่ (ผู้บริหาร)", S("exec_title", fontSize=9, textColor=C_DARK_BLUE, fontName=font, leading=13, spaceAfter=3)),
+            exec_tbl,
         ]))
         story.append(Spacer(1, 5 * mm))
 

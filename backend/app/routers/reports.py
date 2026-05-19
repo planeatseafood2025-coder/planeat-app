@@ -3,6 +3,7 @@ reports.py — API สำหรับสร้างและดาวน์โ�
 """
 import os
 import uuid
+from datetime import date as date_type
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -54,6 +55,157 @@ class _PdfStore(dict):
 _pdf_store = _PdfStore()
 
 
+def _build_inline_pdf_response(path: str, report_id: str) -> FileResponse:
+    response = FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=f"planeat_report_{report_id[:8]}.pdf",
+    )
+    response.headers["Content-Disposition"] = f'inline; filename="planeat_report_{report_id[:8]}.pdf"'
+    return response
+
+
+def _resolve_history_dates(date_from: str, date_to: str) -> tuple[date_type, date_type]:
+    now = datetime.now()
+    try:
+        resolved_from = date_type.fromisoformat(date_from) if date_from else date_type(now.year, now.month, 1)
+        resolved_to = (
+            date_type.fromisoformat(date_to)
+            if date_to
+            else date_type(
+                now.year,
+                now.month + 1 if now.month < 12 else 1,
+                1 if now.month < 12 else 31,
+            ) - timedelta(days=1)
+        )
+    except Exception:
+        resolved_from = date_type(now.year, now.month, 1)
+        import calendar
+        resolved_to = date_type(now.year, now.month, calendar.monthrange(now.year, now.month)[1])
+
+    if resolved_to < resolved_from:
+        resolved_from, resolved_to = resolved_to, resolved_from
+    return resolved_from, resolved_to
+
+
+async def _generate_history_pdf_bytes(cat_key: str, date_from: date_type, date_to: date_type, mode: str) -> tuple[bytes, str]:
+    now = datetime.now()
+    period_label = _auto_period_label(date_from, date_to)
+
+    db = get_db()
+    date_query = {
+        "date_iso": {
+            "$gte": date_from.strftime("%Y-%m-%d"),
+            "$lte": date_to.strftime("%Y-%m-%d") + "T23:59:59",
+        }
+    }
+    base_query: dict = {**date_query}
+    if cat_key and cat_key != "all":
+        base_query["catKey"] = cat_key
+
+    expenses = await db.expenses.find(base_query).sort("date_iso", 1).to_list(None)
+
+    usernames = set()
+    for exp in expenses:
+        if exp.get("recorder"):
+            usernames.add(exp["recorder"])
+        if exp.get("approvedBy"):
+            usernames.add(exp["approvedBy"])
+
+    user_map: dict[str, str] = {}
+    if usernames:
+        async for u in db.users.find(
+            {"username": {"$in": list(usernames)}},
+            {"username": 1, "firstName": 1, "lastName": 1, "name": 1},
+        ):
+            fn = u.get("firstName", "").strip()
+            ln = u.get("lastName", "").strip()
+            real_name = f"{fn} {ln}".strip() or u.get("name", "").strip() or u.get("username", "")
+            user_map[u["username"]] = real_name
+
+    def _real_name(username: str, explicit_name: str = "") -> str:
+        return user_map.get(username, explicit_name or username)
+
+    records = []
+    for exp in expenses:
+        recorder_username = exp.get("recorder", "")
+        approver_username = exp.get("approvedBy", "")
+        records.append({
+            "id": str(exp.get("_id", "")),
+            "date": exp.get("date", ""),
+            "date_iso": exp.get("date_iso", ""),
+            "category": exp.get("category", ""),
+            "detail": exp.get("detail", ""),
+            "note": exp.get("note", ""),
+            "amount": float(exp.get("amount", 0)),
+            "recorder": _real_name(recorder_username, exp.get("recorderName", "")),
+            "recorderName": _real_name(recorder_username, exp.get("recorderName", "")),
+            "approver": _real_name(approver_username, exp.get("approvedByName", exp.get("approverName", ""))),
+            "approverName": _real_name(approver_username, exp.get("approvedByName", exp.get("approverName", ""))),
+            "catKey": exp.get("catKey", ""),
+        })
+
+    cat_name = "ทุกหมวด"
+    if cat_key and cat_key != "all":
+        try:
+            cat_doc = await db.expense_categories.find_one({"_id": cat_key})
+            if cat_doc:
+                cat_name = cat_doc.get("name", cat_key)
+            else:
+                cat_name = cat_key
+        except Exception:
+            cat_name = cat_key
+
+    categories_summary = None
+    budgets_by_cat: dict[str, float] = {}
+    if date_from.month == date_to.month and date_from.year == date_to.year:
+        month_key = f"{date_from.month:02d}/{date_from.year}"
+        budget_doc = await db.budgets.find_one({"monthYear": month_key}) or {}
+        raw_budgets = budget_doc.get("budgets", {}) or {}
+        for b_cat_key, cfg in raw_budgets.items():
+            budgets_by_cat[str(b_cat_key)] = float((cfg or {}).get("monthly", 0.0) or 0.0)
+    if cat_key == "all":
+        cat_map: dict = {}
+        for record in records:
+            record_cat_key = record.get("catKey", "")
+            record_cat_name = record.get("category", record_cat_key)
+            if record_cat_key not in cat_map:
+                cat_map[record_cat_key] = {"name": record_cat_name, "total": 0.0, "count": 0, "catKey": record_cat_key}
+            cat_map[record_cat_key]["total"] += record["amount"]
+            cat_map[record_cat_key]["count"] += 1
+        categories_summary = []
+        for _, item in cat_map.items():
+            monthly_budget = budgets_by_cat.get(item["catKey"], 0.0)
+            month_remaining = monthly_budget - item["total"] if monthly_budget > 0 else None
+            month_pct = (item["total"] / monthly_budget * 100.0) if monthly_budget > 0 else None
+            categories_summary.append({
+                "name": item["name"],
+                "total": item["total"],
+                "count": item["count"],
+                "monthlyBudget": monthly_budget,
+                "monthRemaining": month_remaining,
+                "monthPct": month_pct,
+            })
+
+    total_budget = 0.0
+    if cat_key and cat_key != "all" and date_from.month == date_to.month and date_from.year == date_to.year:
+        my = f"{date_from.month:02d}/{date_from.year}"
+        budget_doc = await db.budgets.find_one({"monthYear": my}) or {}
+        total_budget = budget_doc.get("budgets", {}).get(cat_key, {}).get("monthly", 0.0)
+
+    pdf_bytes = generate_history_pdf(
+        records=records,
+        period_label=period_label,
+        cat_name=cat_name,
+        categories_summary=categories_summary,
+        total_budget=total_budget,
+        doc_no=f"RPT-{now.strftime('%Y%m%d%H%M%S')}",
+        mode=mode,
+    )
+    filename = f"planeat-{date_from}-{date_to}.pdf"
+    return pdf_bytes, filename
+
+
 @router.get("/download/{report_id}")
 async def download_pdf(report_id: str):
     """
@@ -68,6 +220,18 @@ async def download_pdf(report_id: str):
         media_type="application/pdf",
         filename=f"planeat_report_{report_id[:8]}.pdf",
     )
+
+
+@router.get("/view/{report_id}")
+async def view_pdf(report_id: str):
+    """
+    เปิด PDF ใน browser โดยตรง
+    ใช้สำหรับลิงก์จาก LINE/เว็บที่ควรเปิด preview ก่อน ไม่ดาวน์โหลดทันที
+    """
+    path = _pdf_store.get(report_id)
+    if not path:
+        return JSONResponse(status_code=404, content={"error": "ไม่พบรายงาน หรือรายงานหมดอายุแล้ว"})
+    return _build_inline_pdf_response(path, report_id)
 
 
 @router.post("/generate")
@@ -184,103 +348,38 @@ async def history_pdf(
     - dateTo:   วันสิ้นสุด  (YYYY-MM-DD)
     ถ้าไม่ระบุ dateFrom/dateTo จะใช้เดือนปัจจุบัน
     """
-    from datetime import date as date_type
-
-    now = datetime.now()
+    d_from, d_to = _resolve_history_dates(dateFrom, dateTo)
     try:
-        d_from = date_type.fromisoformat(dateFrom) if dateFrom else date_type(now.year, now.month, 1)
-        d_to   = date_type.fromisoformat(dateTo)   if dateTo   else date_type(now.year, now.month + 1 if now.month < 12 else 1,
-                                                                               1 if now.month < 12 else 31) - timedelta(days=1) \
-                 if not dateTo else date_type.fromisoformat(dateTo)
-    except Exception:
-        d_from = date_type(now.year, now.month, 1)
-        import calendar
-        d_to   = date_type(now.year, now.month, calendar.monthrange(now.year, now.month)[1])
-
-    # ป้องกัน dateTo น้อยกว่า dateFrom
-    if d_to < d_from:
-        d_from, d_to = d_to, d_from
-
-    period_label = _auto_period_label(d_from, d_to)
-
-    # ─── fetch expenses ──────────────────────────────────────────────────────
-    db = get_db()
-    date_query = {
-        "date_iso": {
-            "$gte": d_from.strftime("%Y-%m-%d"),
-            "$lte": d_to.strftime("%Y-%m-%d") + "T23:59:59",
-        }
-    }
-    base_query: dict = {**date_query}
-    if catKey and catKey != "all":
-        base_query["catKey"] = catKey
-
-    expenses = await db.expenses.find(base_query).sort("date_iso", 1).to_list(None)
-
-    doc_no = f"RPT-{now.strftime('%Y%m%d%H%M%S')}"
-    records = []
-    for exp in expenses:
-        records.append({
-            "id":       str(exp.get("_id", "")),
-            "date":     exp.get("date", ""),
-            "date_iso": exp.get("date_iso", ""),
-            "category": exp.get("category", ""),
-            "detail":   exp.get("detail", ""),
-            "note":     exp.get("note", ""),
-            "amount":   float(exp.get("amount", 0)),
-            "recorder": exp.get("recorderName", exp.get("recorder", "")),
-            "approver": exp.get("approverName", exp.get("approvedBy", "")),
-            "catKey":   exp.get("catKey", ""),
-        })
-
-    # ─── resolve cat_name ────────────────────────────────────────────────────
-    cat_name = "ทุกหมวด"
-    if catKey and catKey != "all":
-        try:
-            cat_doc = await db.expense_categories.find_one({"_id": catKey})
-            if cat_doc:
-                cat_name = cat_doc.get("name", catKey)
-            else:
-                cat_name = catKey
-        except Exception:
-            cat_name = catKey
-
-    # ─── category summary (for "all") ────────────────────────────────────────
-    categories_summary = None
-    if catKey == "all":
-        cat_map: dict = {}
-        for r in records:
-            ck = r.get("catKey", "")
-            cn = r.get("category", ck)
-            if ck not in cat_map:
-                cat_map[ck] = {"name": cn, "total": 0.0, "count": 0}
-            cat_map[ck]["total"] += r["amount"]
-            cat_map[ck]["count"] += 1
-        categories_summary = list(cat_map.values())
-
-    # ─── budget for single category (same month only) ─────────────────────────
-    total_budget = 0.0
-    if catKey and catKey != "all" and d_from.month == d_to.month and d_from.year == d_to.year:
-        my = f"{d_from.month:02d}/{d_from.year}"
-        budget_doc = await db.budgets.find_one({"monthYear": my}) or {}
-        total_budget = budget_doc.get("budgets", {}).get(catKey, {}).get("monthly", 0.0)
-
-    # ─── generate PDF ─────────────────────────────────────────────────────────
-    try:
-        pdf_bytes = generate_history_pdf(
-            records=records,
-            period_label=period_label,
-            cat_name=cat_name,
-            categories_summary=categories_summary,
-            total_budget=total_budget,
-            doc_no=doc_no,
-            mode=mode,
-        )
+        pdf_bytes, filename = await _generate_history_pdf_bytes(catKey, d_from, d_to, mode)
     except Exception as e:
         import traceback; traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": f"สร้าง PDF ล้มเหลว: {e}"})
 
-    filename = f"planeat-{d_from}-{d_to}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/history-pdf-public")
+async def history_pdf_public(
+    catKey: str = Query("all"),
+    dateFrom: str = Query(""),
+    dateTo: str = Query(""),
+    mode: str = Query("auto"),
+):
+    """
+    สร้าง PDF รายงานแบบเดียวกับหน้า "ออกรายงาน" แต่เปิดจาก LINE/Browser ภายนอกได้
+    ใช้กับลิงก์ในข้อความ/การ์ดที่ต้องเปิด preview ก่อน ไม่ดาวน์โหลดทันที
+    """
+    d_from, d_to = _resolve_history_dates(dateFrom, dateTo)
+    try:
+        pdf_bytes, filename = await _generate_history_pdf_bytes(catKey, d_from, d_to, mode)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": f"สร้าง PDF ล้มเหลว: {e}"})
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

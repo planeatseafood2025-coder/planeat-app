@@ -634,30 +634,92 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
         db2 = get_db()
         smtp_doc = await db2.system_settings.find_one({"_id": "system_settings"}) or {}
 
-        # Fetch recorder email
-        recorder_user = await db2.users.find_one({"username": draft["recorder"]}, {"_id": 0, "email": 1})
-        recorder_email = recorder_user.get("email", "") if recorder_user else ""
+        # allowedUsers + managers, dedupe by email
+        MANAGER_ROLES = {"accounting_manager", "admin", "super_admin"}
+        cat_doc = await db2.expense_categories.find_one({"_id": cat_id}, {"allowedUsers": 1})
+        allowed_usernames = list((cat_doc or {}).get("allowedUsers", []))
+        if not allowed_usernames:
+            allowed_usernames = [draft["recorder"]]
 
-        if recorder_email:
-            from .email_service import send_approval_email
-            # PDF link: generate on-the-fly and store
+        all_target_users = await db2.users.find(
+            {"$or": [
+                {"username": {"$in": allowed_usernames}},
+                {"role": {"$in": list(MANAGER_ROLES)}, "status": "active"},
+            ]},
+            {"_id": 0, "email": 1, "lineUid": 1, "lineNotifyToken": 1,
+             "firstName": 1, "lastName": 1, "name": 1}
+        ).to_list(None)
+
+        seen_emails: set = set()
+        recipient_emails: list = []
+        recipient_line: list = []
+        for u in all_target_users:
+            name = (u.get("firstName", "") + " " + u.get("lastName", "")).strip() or u.get("name", "")
+            em = u.get("email", "").strip()
+            if em:
+                em_lower = em.lower()
+                if em_lower not in seen_emails:
+                    seen_emails.add(em_lower)
+                    recipient_emails.append((em, name))
+            else:
+                line_uid = u.get("lineUid", "")
+                notify_token = u.get("lineNotifyToken", "")
+                if line_uid or notify_token:
+                    recipient_line.append((line_uid, notify_token, name))
+
+        # สร้าง PDF
+        pdf_url = ""
+        if recipient_emails or recipient_line:
             from .report_service import build_report_data
             from .pdf_service import generate_expense_report_pdf
             from ..routers.reports import _pdf_store, _pdf_save, _pdf_path
             import uuid as _uuid
+            import os as _os
             try:
                 report_data = await build_report_data(cat_id, "daily", now)
                 pdf_bytes = generate_expense_report_pdf(report_data)
                 report_id = str(_uuid.uuid4())
                 _pdf_save(report_id, pdf_bytes)
                 _pdf_store[report_id] = _pdf_path(report_id)
-                pdf_url = f"/api/reports/download/{report_id}"
+                _pub = _os.environ.get("PUBLIC_URL", "").rstrip("/")
+                pdf_url = f"{_pub}/api/reports/download/{report_id}" if _pub else f"/api/reports/download/{report_id}"
             except Exception as _e:
                 print(f"[Approve] PDF gen failed: {_e}")
-                pdf_url = ""
-            await send_approval_email(recorder_email, draft["recorderName"], draft["category"], draft["date"], draft["total"], pdf_url, smtp_doc)
 
-        # ── ส่ง LINE OA หลังอนุมัติ (ใช้ mainLineOa + moduleConnections.expense) ──
+        # ส่ง email
+        if recipient_emails:
+            from .email_service import send_approval_email
+            for _email, _name in recipient_emails:
+                try:
+                    await send_approval_email(_email, _name or draft["recorderName"],
+                        draft["category"], draft["date"], draft["total"], pdf_url, smtp_doc)
+                    print(f"[Approve] Email sent to {_email}")
+                except Exception as _em:
+                    print(f"[Approve] Email failed to={_email}: {_em}")
+
+        # LINE fallback
+        if recipient_line:
+            from .line_notify_service import _push_to_uid, _notify_personal
+            _line_msg = (
+                "\u2705 \u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e44\u0e14\u0e49\u0e23\u0e31\u0e1a\u0e01\u0e32\u0e23\u0e2d\u0e19\u0e38\u0e21\u0e31\u0e15\u0e34\u0e41\u0e25\u0e49\u0e27\n"
+                f"\u0e2b\u0e21\u0e27\u0e14: {draft['category']}\n"
+                f"\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48: {draft.get('date', '')}\n"
+                f"\u0e22\u0e2d\u0e14: \u0e3f{draft['total']:,.2f}\n"
+            )
+            if pdf_url:
+                _line_msg += f"\U0001f4c4 \u0e14\u0e39\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19: {pdf_url}"
+            for _luid, _ltoken, _lname in recipient_line:
+                try:
+                    if _luid:
+                        await _push_to_uid(_luid, [{"type": "text", "text": _line_msg}])
+                        print(f"[Approve] LINE sent uid={_luid}")
+                    elif _ltoken:
+                        await _notify_personal(_ltoken, _line_msg)
+                        print(f"[Approve] LINE Notify sent name={_lname}")
+                except Exception as _le:
+                    print(f"[Approve] LINE fallback failed name={_lname}: {_le}")
+
+        # LINE OA group
         main_oa   = smtp_doc.get("mainLineOa") or {}
         oa_token  = main_oa.get("token", "")
         mc        = smtp_doc.get("moduleConnections") or {}
@@ -668,17 +730,23 @@ async def approve_draft_dynamic(draft_id: str, current: dict) -> dict:
             from .line_oa_service import push_line_report
             from ..routers.reports import _pdf_store as _ps, _pdf_save as _psave, _pdf_path as _ppath
             import uuid as _u2
+            import os as _os2
             try:
+                _pub2 = _os2.environ.get("PUBLIC_URL", "").rstrip("/")
                 rd  = await _brd(cat_id, "daily", now)
                 pb  = _genpdf(rd)
                 rid = str(_u2.uuid4())
                 _psave(rid, pb)
                 _ps[rid] = _ppath(rid)
-                await push_line_report(oa_token, target_id, rd, f"/api/reports/download/{rid}")
+                _rid_url = f"{_pub2}/api/reports/download/{rid}" if _pub2 else f"/api/reports/download/{rid}"
+                await push_line_report(oa_token, target_id, rd, _rid_url)
+                print("[Approve] LINE OA group push sent")
             except Exception as _e2:
-                print(f"[Approve] LINE push failed: {_e2}")
+                print(f"[Approve] LINE OA push failed: {_e2}")
     except Exception as _e3:
+        import traceback; traceback.print_exc()
         print(f"[Approve] Post-approval hook failed: {_e3}")
+
 
     return {"success": True, "message": "อนุมัติสำเร็จ", "expenseIds": expense_ids}
 

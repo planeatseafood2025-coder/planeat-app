@@ -3,7 +3,7 @@ from typing import Optional, List, Literal
 
 # ─── Field types ─────────────────────────────────────────────────────────────
 FieldType = Literal["number", "text", "select"]
-CalcRole  = Literal["qty", "price", "addend", "fixed", "note", "none"]
+CalcRole  = Literal["qty", "qty2", "price", "addend", "fixed", "note", "none", "rate1", "rate2"]
 
 class CategoryField(BaseModel):
     fieldId:     str
@@ -14,6 +14,7 @@ class CategoryField(BaseModel):
     required:    bool        = True
     calcRole:    CalcRole    = "none"
     options:     List[str]   = []   # สำหรับ type=select
+    presetValue: Optional[float] = None
 
 class ReportScheduleItem(BaseModel):
     enabled:        bool = False
