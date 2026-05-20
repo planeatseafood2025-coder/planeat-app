@@ -7,6 +7,10 @@ from ..database import get_db
 
 SETTINGS_DOC_ID = "system_settings"
 
+def send_email_sync(to: str, subject: str, html: str, smtp_conf: dict):
+    """Public wrapper for send_email_sync — used by agent tools."""
+    return _send_email_sync(to, subject, html, smtp_conf)
+
 def _send_email_sync(to_email: str, subject: str, html_content: str, smtp_conf: dict):
     # Use dynamic config if provided, otherwise fallback to static settings
     smtp_server = smtp_conf.get("smtpServer") or settings.smtp_server

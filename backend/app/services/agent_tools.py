@@ -230,7 +230,114 @@ async def execute_getReminders(input: dict) -> dict:
     return {"reminders": reminders, "count": len(reminders)}
 
 
-# ─── Placeholder dicts (write executors added in Task 4) ───
+# ─── Write Tool Executors ───
+
+import uuid as _uuid
+
+
+async def execute_createReminder(input: dict, created_by: str) -> dict:
+    db = get_db()
+    doc = {
+        "_id": str(_uuid.uuid4()),
+        "title": input["title"],
+        "dueDate": input.get("dueDate", ""),
+        "accountId": input.get("accountId", ""),
+        "note": input.get("note", ""),
+        "status": "pending",
+        "createdBy": created_by,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.crm_reminders_b2b.insert_one(doc)
+    return {"success": True, "reminderId": doc["_id"], "title": doc["title"], "dueDate": doc["dueDate"]}
+
+
+async def execute_logActivity(input: dict, created_by: str) -> dict:
+    db = get_db()
+    doc = {
+        "_id": str(_uuid.uuid4()),
+        "type": input["type"],
+        "accountId": input["accountId"],
+        "note": input.get("note", ""),
+        "outcome": input.get("outcome", ""),
+        "createdBy": created_by,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.crm_activities_b2b.insert_one(doc)
+    await db.crm_accounts.update_one(
+        {"_id": doc["accountId"]},
+        {"$set": {"lastContact": doc["createdAt"][:10]}},
+    )
+    return {"success": True, "activityId": doc["_id"]}
+
+
+async def execute_createContact(input: dict, created_by: str) -> dict:
+    db = get_db()
+    doc = {
+        "_id": str(_uuid.uuid4()),
+        "firstName": input["firstName"],
+        "lastName": input.get("lastName", ""),
+        "position": input.get("position", ""),
+        "department": input.get("department", ""),
+        "email": input.get("email", ""),
+        "phone": input.get("phone", ""),
+        "accountId": input["accountId"],
+        "notes": input.get("notes", ""),
+        "isPrimary": False,
+        "preferredLanguage": "th",
+        "createdBy": created_by,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.crm_contacts_b2b.insert_one(doc)
+    return {"success": True, "contactId": doc["_id"], "name": f"{doc['firstName']} {doc['lastName']}".strip()}
+
+
+async def execute_sendPreviewEmail(input: dict, requester_email: str, smtp_conf: dict) -> dict:
+    """Send draft email to requester for review. Returns pending_email dict for later confirm."""
+    import html as _html
+    db = get_db()
+    contact = await db.crm_contacts_b2b.find_one({"_id": input["toContactId"]})
+    contact_name = f"{contact.get('firstName','')} {contact.get('lastName','')}".strip() if contact else input["toContactId"]
+    contact_email = contact.get("email", "") if contact else ""
+
+    preview_html = f"""
+    <div style="background:#fef3c7;border:2px dashed #f59e0b;padding:12px;margin-bottom:16px;border-radius:8px;font-family:sans-serif;font-size:13px;color:#92400e">
+      ⚠️ <strong>PREVIEW EMAIL</strong> — จะส่งจริงไปหา <strong>{_html.escape(contact_name)}</strong> ({_html.escape(contact_email)}) หลัง confirm
+    </div>
+    {input['htmlBody']}
+    """
+    await _send_email_async(requester_email, f"[PREVIEW] {input['subject']}", preview_html, smtp_conf)
+
+    return {
+        "success": True,
+        "preview_sent_to": requester_email,
+        "pending_email": {
+            "toContactId": input["toContactId"],
+            "toContactName": contact_name,
+            "toContactEmail": contact_email,
+            "subject": input["subject"],
+            "htmlBody": input["htmlBody"],
+        },
+    }
+
+
+async def execute_sendEmail(input: dict, smtp_conf: dict) -> dict:
+    """Send email for real — only called after user confirms."""
+    db = get_db()
+    contact = await db.crm_contacts_b2b.find_one({"_id": input["toContactId"]})
+    if not contact or not contact.get("email"):
+        return {"success": False, "error": "ไม่พบอีเมลของผู้รับ"}
+    await _send_email_async(contact["email"], input["subject"], input["htmlBody"], smtp_conf)
+    return {"success": True, "sent_to": contact["email"]}
+
+
+async def _send_email_async(to: str, subject: str, html: str, smtp_conf: dict):
+    import asyncio
+    from .email_service import send_email_sync
+    await asyncio.to_thread(send_email_sync, to, subject, html, smtp_conf)
+
+
+# ─── Dispatchers ───
+
 EXECUTORS = {
     "getDeals": execute_getDeals,
     "getAccounts": execute_getAccounts,
@@ -239,4 +346,10 @@ EXECUTORS = {
     "getReminders": execute_getReminders,
 }
 
-WRITE_EXECUTORS: dict = {}
+WRITE_EXECUTORS = {
+    "createReminder": execute_createReminder,
+    "logActivity": execute_logActivity,
+    "createContact": execute_createContact,
+    "sendPreviewEmail": execute_sendPreviewEmail,
+    "sendEmail": execute_sendEmail,
+}
