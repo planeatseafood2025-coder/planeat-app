@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { chatApi, notificationApi } from '@/lib/api'
+import { chatApi, notificationApi, agentApi } from '@/lib/api'
 import { getSession } from '@/lib/auth'
 import type { ChatContact, ChatMessage, Notification } from '@/types'
 import { ROLE_LABELS } from '@/types'
@@ -44,6 +44,12 @@ export default function ChatPage() {
   const chatSseRef = useRef<EventSource | null>(null)
   const notifSseRef = useRef<EventSource | null>(null)
 
+  // Agent state
+  const [agents, setAgents] = useState<ChatContact[]>([])
+  const [pendingEmail, setPendingEmail] = useState<object | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   // Load contacts once
   useEffect(() => {
     chatApi.getContacts().then((res: unknown) => {
@@ -51,6 +57,20 @@ export default function ChatPage() {
       setContacts(r.contacts || [])
       setLoadingContacts(false)
     }).catch(() => setLoadingContacts(false))
+  }, [])
+
+  // Load agents once
+  useEffect(() => {
+    agentApi.listAgents().then((r: any) => {
+      const agentContacts: ChatContact[] = (r.agents || []).map((a: any) => ({
+        username: `__agent__${a.id}`,
+        name: a.name,
+        role: 'general_user' as any,
+        isAgent: true,
+        agentAvatar: a.avatar,
+      }))
+      setAgents(agentContacts)
+    }).catch(() => {})
   }, [])
 
   // SSE notifications — ตรวจหาข้อความใหม่จาก unread chat notifications
@@ -78,6 +98,14 @@ export default function ChatPage() {
   // When contact changes, load messages and open SSE stream
   useEffect(() => {
     if (!selected) return
+
+    if (selected.isAgent) {
+      setMessages([])
+      setPendingEmail(null)
+      setLoadingMsgs(false)
+      return
+    }
+
     setLoadingMsgs(true)
     setUnreadFrom(prev => { const s = new Set(prev); s.delete(selected.username); return s })
     loadMessages(selected.username).finally(() => setLoadingMsgs(false))
@@ -109,9 +137,63 @@ export default function ChatPage() {
   }, [messages])
 
   async function handleSend() {
-    if (!input.trim() || !selected || sending) return
+    if ((!input.trim() && !imageFile) || !selected || sending) return
+    setSending(true)
+
+    if (selected.isAgent) {
+      const agentId = selected.username.replace('__agent__', '')
+      const userMsg: ChatMessage = {
+        id: Date.now().toString(),
+        roomId: agentId,
+        sender: me,
+        content: input || '📷 รูปภาพ',
+        createdAt: new Date().toISOString(),
+      }
+      setMessages(prev => [...prev, userMsg])
+      const currentInput = input
+      setInput('')
+
+      let imageBase64: string | undefined
+      let imageMediaType: string | undefined
+      if (imageFile) {
+        const buf = await imageFile.arrayBuffer()
+        imageBase64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+        imageMediaType = imageFile.type
+        setImageFile(null)
+      }
+
+      try {
+        const res = await agentApi.chat(agentId, currentInput, {
+          imageBase64,
+          imageMediaType,
+          pendingEmail: pendingEmail ?? undefined,
+        }) as any
+        const agentMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          roomId: agentId,
+          sender: selected.username,
+          content: res.reply,
+          createdAt: new Date().toISOString(),
+        }
+        setMessages(prev => [...prev, agentMsg])
+        setPendingEmail(res.pending_email ?? null)
+      } catch {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          roomId: agentId,
+          sender: selected.username,
+          content: '❌ เกิดข้อผิดพลาดครับ กรุณาลองใหม่',
+          createdAt: new Date().toISOString(),
+        }])
+      }
+      setSending(false)
+      return
+    }
+
+    // Regular chat
+    if (!input.trim()) { setSending(false); return }
     const text = input.trim()
-    setInput(''); setSending(true)
+    setInput('')
     try {
       await chatApi.sendMessage(selected.username, text)
       await loadMessages(selected.username)
@@ -176,6 +258,29 @@ export default function ChatPage() {
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto' }}>
+            {/* AI Agents */}
+            {agents.filter(a => a.name.toLowerCase().includes(search.toLowerCase())).map(agent => (
+              <button key={agent.username} onClick={() => { setSelected(agent); setMessages([]) }}
+                style={{
+                  width: '100%', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10,
+                  background: selected?.username === agent.username ? '#eff6ff' : '#fff',
+                  border: 'none', cursor: 'pointer', textAlign: 'left',
+                  borderLeft: selected?.username === agent.username ? '3px solid #2563eb' : '3px solid transparent',
+                  borderBottom: '1px solid #dbeafe',
+                }}>
+                <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#2563eb,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, position: 'relative' }}>
+                  {agent.agentAvatar || '🤖'}
+                  <div style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1d4ed8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{agent.name}</p>
+                  <p style={{ margin: 0, fontSize: 11, color: '#3b82f6' }}>AI · ออนไลน์ตลอดเวลา</p>
+                </div>
+              </button>
+            ))}
+            {agents.length > 0 && <div style={{ height: 1, background: '#e2e8f0', margin: '4px 0' }} />}
+
+            {/* Regular contacts */}
             {loadingContacts ? (
               <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>
                 <span className="material-icons-round spin" style={{ fontSize: 24 }}>refresh</span>
@@ -227,13 +332,19 @@ export default function ChatPage() {
             <>
               {/* Header */}
               <div style={{ padding: '12px 20px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Avatar contact={selected} size={40} />
+                {selected.isAgent ? (
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#2563eb,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                    {selected.agentAvatar || '🤖'}
+                  </div>
+                ) : (
+                  <Avatar contact={selected} size={40} />
+                )}
                 <div>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
-                    {displayName(selected)}{selected.nickname ? ` (${selected.nickname})` : ''}
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: selected.isAgent ? '#1d4ed8' : '#1e293b' }}>
+                    {selected.name}
                   </p>
-                  <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>
-                    {selected.jobTitle ? `${selected.jobTitle} · ` : ''}{ROLE_LABELS[selected.role] ?? selected.role}
+                  <p style={{ margin: 0, fontSize: 11, color: selected.isAgent ? '#3b82f6' : '#94a3b8' }}>
+                    {selected.isAgent ? 'AI Assistant · ออนไลน์ตลอดเวลา' : (selected.jobTitle ? `${selected.jobTitle} · ` : '') + (ROLE_LABELS[selected.role] ?? selected.role)}
                   </p>
                 </div>
               </div>
@@ -255,10 +366,16 @@ export default function ChatPage() {
                     </div>
                     {group.msgs.map(msg => {
                       const isMine = msg.sender === me
-                      const senderContact = !isMine ? (contactMap[msg.sender] ?? { username: msg.sender, name: msg.sender, role: 'general_user' as const }) : null
+                      const isAgentMsg = msg.sender.startsWith('__agent__')
+                      const senderContact = !isMine && !isAgentMsg ? (contactMap[msg.sender] ?? { username: msg.sender, name: msg.sender, role: 'general_user' as const }) : null
                       return (
                         <div key={msg.id} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: 8, alignItems: 'flex-end', gap: 8 }}>
                           {/* Sender avatar (others only) */}
+                          {!isMine && isAgentMsg && (
+                            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#2563eb,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, marginBottom: 2 }}>
+                              {selected?.agentAvatar || '🤖'}
+                            </div>
+                          )}
                           {!isMine && senderContact && (
                             <div style={{ flexShrink: 0, marginBottom: 2 }}>
                               <Avatar contact={senderContact as ChatContact} size={28} />
@@ -290,28 +407,45 @@ export default function ChatPage() {
                 <div ref={bottomRef} />
               </div>
 
+              {/* Pending email banner */}
+              {pendingEmail && (
+                <div style={{ padding: '8px 16px', background: '#fef3c7', borderTop: '1px solid #f59e0b', fontSize: 12, color: '#92400e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>📧 รอ confirm ส่งอีเมล — พิมพ์ "โอเค ส่งได้เลย" เพื่อส่งจริง</span>
+                  <button onClick={() => setPendingEmail(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontSize: 16 }}>✕</button>
+                </div>
+              )}
+
               {/* Input */}
-              <div style={{ padding: '12px 20px', background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ padding: '12px 20px', background: 'white', borderTop: pendingEmail ? 'none' : '1px solid #e2e8f0', display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Avatar contact={session ? { username: me, name: me, role: 'general_user', profilePhoto: session.profilePhoto } : { username: me, name: me, role: 'general_user' }} size={32} />
                 <input
                   type="text"
-                  placeholder={`พิมพ์ข้อความถึง ${displayName(selected)}...`}
+                  placeholder={selected?.isAgent ? 'พิมพ์คำสั่งให้ AI...' : `พิมพ์ข้อความถึง ${displayName(selected)}...`}
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
                   disabled={sending}
                   style={{ flex: 1, padding: '8px 14px', borderRadius: 24, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', background: '#f8fafc' }}
                 />
+                {selected?.isAgent && (
+                  <>
+                    <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => setImageFile(e.target.files?.[0] || null)} />
+                    <button onClick={() => fileInputRef.current?.click()} title="แนบนามบัตร / รูปภาพ"
+                      style={{ background: imageFile ? '#eff6ff' : 'transparent', border: '1px solid #e2e8f0', borderRadius: 8, padding: '0 10px', cursor: 'pointer', color: imageFile ? '#2563eb' : '#94a3b8', height: 40, display: 'flex', alignItems: 'center' }}>
+                      <span className="material-icons-round" style={{ fontSize: 18 }}>{imageFile ? 'image' : 'attach_file'}</span>
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim() || sending}
+                  disabled={(!input.trim() && !imageFile) || sending}
                   style={{
-                    width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: input.trim() ? 'pointer' : 'not-allowed',
-                    background: input.trim() ? '#2563eb' : '#e2e8f0',
-                    color: input.trim() ? 'white' : '#94a3b8',
+                    width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: (input.trim() || imageFile) ? 'pointer' : 'not-allowed',
+                    background: (input.trim() || imageFile) ? '#2563eb' : '#e2e8f0',
+                    color: (input.trim() || imageFile) ? 'white' : '#94a3b8',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   }}>
-                  <span className="material-icons-round" style={{ fontSize: 18 }}>send</span>
+                  <span className="material-icons-round" style={{ fontSize: 18 }}>{sending && selected?.isAgent ? 'pending' : 'send'}</span>
                 </button>
               </div>
             </>
