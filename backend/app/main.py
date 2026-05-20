@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from .config import settings as app_settings
 from .database import connect_db, close_db, get_db
-from .routers import auth, expenses, budget, users, inventory, chat, profile, notifications, categories, settings, reports, line_webhook, sse, customers, crm_workspaces, segments, google_sheets, deals, activities, field_history, crm_b2b
+from .routers import auth, expenses, budget, users, inventory, chat, profile, notifications, categories, settings, reports, line_webhook, sse, customers, crm_workspaces, segments, google_sheets, deals, activities, field_history, crm_b2b, agent
 from .services.inventory_service import init_warehouses
 from .services.category_service import ensure_default_categories
 from .services.auth_service import ensure_default_admin
@@ -60,6 +60,8 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     await db.deals.create_index("assignedTo")
     await db.activities.create_index("targetId")
     await db.activities.create_index("targetType")
+    await db.ai_agents.create_index("id", unique=True)
+    await db.agent_messages.create_index([("agent_id", 1), ("username", 1), ("created_at", -1)])
     yield
     await close_db()
 
@@ -100,6 +102,7 @@ app.include_router(deals.router)
 app.include_router(activities.router)
 app.include_router(field_history.router)
 app.include_router(crm_b2b.router)
+app.include_router(agent.router)
 
 
 @app.get("/api/health")
