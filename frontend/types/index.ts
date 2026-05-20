@@ -128,7 +128,7 @@ export interface AgentConfig {
   id: string
   name: string
   avatar: string
-  provider: 'anthropic' | 'openai' | 'google'
+  provider: 'anthropic' | 'openai' | 'google' | 'openrouter'
   model: string
   personality: 'friendly' | 'formal' | 'concise'
   tools_enabled: string[]

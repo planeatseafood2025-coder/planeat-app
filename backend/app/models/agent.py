@@ -7,7 +7,7 @@ class AgentConfig(BaseModel):
     id: str = "marketing_agent_1"
     name: str = "PlaNeat AI (การตลาด)"
     avatar: str = "🤖"
-    provider: Literal["anthropic", "openai", "google"] = "anthropic"
+    provider: Literal["anthropic", "openai", "google", "openrouter"] = "anthropic"
     model: str = "claude-sonnet-4-6"
     api_key: str = ""
     personality: Literal["friendly", "formal", "concise"] = "friendly"

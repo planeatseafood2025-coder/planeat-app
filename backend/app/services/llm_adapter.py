@@ -22,6 +22,8 @@ async def call_llm(
         return await _call_openai(model, api_key, system_prompt, messages, tools)
     elif provider == "google":
         return await _call_google(model, api_key, system_prompt, messages, tools)
+    elif provider == "openrouter":
+        return await _call_openrouter(model, api_key, system_prompt, messages, tools)
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -146,3 +148,45 @@ async def _call_google(model, api_key, system_prompt, messages, tools):
                 "calls": [{"name": fc.name, "input": args, "id": fc.name}],
             }
     return {"type": "text", "content": response.text or ""}
+
+
+async def _call_openrouter(model, api_key, system_prompt, messages, tools):
+    import asyncio
+    import json
+    client = openai.OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    oai_messages = [{"role": "system", "content": system_prompt}] + messages
+    oai_tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t.get("input_schema", {}),
+            },
+        }
+        for t in tools
+    ] if tools else []
+
+    def _run():
+        kwargs = dict(model=model, messages=oai_messages, max_tokens=2048)
+        if oai_tools:
+            kwargs["tools"] = oai_tools
+            kwargs["tool_choice"] = "auto"
+        return client.chat.completions.create(**kwargs)
+
+    response = await asyncio.to_thread(_run)
+    msg = response.choices[0].message
+
+    if msg.tool_calls:
+        return {
+            "type": "tool_calls",
+            "calls": [
+                {"name": tc.function.name, "input": json.loads(tc.function.arguments), "id": tc.id}
+                for tc in msg.tool_calls
+            ],
+        }
+    return {"type": "text", "content": msg.content or ""}
