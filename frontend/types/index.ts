@@ -120,6 +120,30 @@ export interface ChatContact {
   role: Role
   jobTitle?: string
   profilePhoto?: string
+  isAgent?: boolean
+  agentAvatar?: string
+}
+
+export interface AgentConfig {
+  id: string
+  name: string
+  avatar: string
+  provider: 'anthropic' | 'openai' | 'google'
+  model: string
+  personality: 'friendly' | 'formal' | 'concise'
+  tools_enabled: string[]
+  api_key?: string
+}
+
+export interface AgentChatResponse {
+  reply: string
+  pending_email: {
+    toContactId: string
+    toContactName: string
+    toContactEmail: string
+    subject: string
+    htmlBody: string
+  } | null
 }
 
 export interface ChatConversation {

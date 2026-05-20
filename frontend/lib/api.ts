@@ -405,6 +405,25 @@ export const crmB2bApi = {
   deleteReminder: (id: string) => request('DELETE', `/api/crm-b2b/reminders/${id}`),
 }
 
+// ─── AI Agent ─────────────────────────────────────────────────────
+export const agentApi = {
+  listAgents: () => request('GET', '/api/agent/list'),
+  chat: (agentId: string, message: string, options?: {
+    imageBase64?: string
+    imageMediaType?: string
+    pendingEmail?: object
+  }) => request('POST', '/api/agent/chat', {
+    agent_id: agentId,
+    message,
+    image_base64: options?.imageBase64 ?? null,
+    image_media_type: options?.imageMediaType ?? null,
+    pending_email: options?.pendingEmail ?? null,
+  }),
+  getConfig: (agentId: string) => request('GET', `/api/agent/config/${agentId}`),
+  updateConfig: (agentId: string, data: unknown) =>
+    request('PUT', `/api/agent/config/${agentId}`, data),
+}
+
 // ─── Health ──────────────────────────────────────────────────────
 export const healthApi = {
   ping: () => request('GET', '/api/health'),
