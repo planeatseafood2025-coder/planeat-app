@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 const PROVIDERS = [
   { value: 'anthropic', label: 'Anthropic (Claude)', models: ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'] },
   { value: 'openai', label: 'OpenAI (GPT)', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
-  { value: 'google', label: 'Google (Gemini)', models: ['gemini-1.5-pro', 'gemini-1.5-flash'] },
+  { value: 'google', label: 'Google (Gemini)', models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'] },
 ]
 
 const ALL_TOOLS = ['getDeals','getAccounts','getContacts','getActivities','getReminders','createReminder','logActivity','createContact','sendPreviewEmail','sendEmail']

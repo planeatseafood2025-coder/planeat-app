@@ -95,7 +95,6 @@ async def _call_openai(model, api_key, system_prompt, messages, tools):
 
 async def _call_google(model, api_key, system_prompt, messages, tools):
     import asyncio
-    import json
     import google.generativeai as genai
 
     genai.configure(api_key=api_key)
@@ -106,7 +105,10 @@ async def _call_google(model, api_key, system_prompt, messages, tools):
         from google.generativeai.types import FunctionDeclaration, Tool
         declarations = []
         for t in tools:
-            schema = t.get("input_schema", {})
+            schema = dict(t.get("input_schema", {}))
+            # Gemini requires "type" at root level
+            if "type" not in schema:
+                schema["type"] = "object"
             declarations.append(FunctionDeclaration(
                 name=t["name"],
                 description=t.get("description", ""),
@@ -114,12 +116,12 @@ async def _call_google(model, api_key, system_prompt, messages, tools):
             ))
         gemini_tools = [Tool(function_declarations=declarations)]
 
-    # Convert messages to Gemini format
+    # Convert messages to Gemini chat history format
     gemini_history = []
     for m in messages:
         role = "user" if m["role"] == "user" else "model"
         content = m["content"] if isinstance(m["content"], str) else str(m["content"])
-        gemini_history.append({"role": role, "parts": [content]})
+        gemini_history.append({"role": role, "parts": [{"text": content}]})
 
     def _run():
         client = genai.GenerativeModel(
@@ -127,19 +129,20 @@ async def _call_google(model, api_key, system_prompt, messages, tools):
             system_instruction=system_prompt,
             tools=gemini_tools,
         )
-        chat = client.start_chat(history=gemini_history[:-1] if len(gemini_history) > 1 else [])
-        last_msg = gemini_history[-1]["parts"][0] if gemini_history else ""
-        return chat.send_message(last_msg)
+        history = gemini_history[:-1] if len(gemini_history) > 1 else []
+        chat = client.start_chat(history=history)
+        last_content = gemini_history[-1]["parts"][0]["text"] if gemini_history else system_prompt
+        return chat.send_message(last_content)
 
     response = await asyncio.to_thread(_run)
 
-    # Check for function calls
-    part = response.candidates[0].content.parts[0]
-    if hasattr(part, "function_call") and part.function_call.name:
-        fc = part.function_call
-        args = dict(fc.args) if fc.args else {}
-        return {
-            "type": "tool_calls",
-            "calls": [{"name": fc.name, "input": args, "id": fc.name}],
-        }
+    # Check for function calls in response parts
+    for part in response.candidates[0].content.parts:
+        if hasattr(part, "function_call") and part.function_call.name:
+            fc = part.function_call
+            args = dict(fc.args) if fc.args else {}
+            return {
+                "type": "tool_calls",
+                "calls": [{"name": fc.name, "input": args, "id": fc.name}],
+            }
     return {"type": "text", "content": response.text or ""}
