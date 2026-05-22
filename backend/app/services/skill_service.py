@@ -23,13 +23,19 @@ async def get_skill(skill_id: str) -> Skill | None:
 async def upsert_skill(data: SkillCreate, username: str) -> Skill:
     db = get_db()
     doc = data.model_dump()
-    doc["created_by"] = username
-    doc["created_at"] = datetime.utcnow().isoformat()
+    existing = await db.ai_skills.find_one({"skill_id": data.skill_id})
+    if not existing:
+        doc["created_by"] = username
+        doc["created_at"] = datetime.utcnow().isoformat()
+    else:
+        doc["created_by"] = existing.get("created_by", username)
+        doc["created_at"] = existing.get("created_at", datetime.utcnow().isoformat())
     await db.ai_skills.update_one(
         {"skill_id": data.skill_id},
         {"$set": doc},
         upsert=True,
     )
+    doc.pop("_id", None)
     return Skill(**doc)
 
 
