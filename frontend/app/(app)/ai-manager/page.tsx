@@ -74,7 +74,8 @@ export default function AiManagerPage() {
   async function handleSaveSkills() {
     if (!assigningSkills) return
     try {
-      await agentApi.updateConfig(assigningSkills, { skill_ids: selectedSkills })
+      const current = await agentApi.getConfig(assigningSkills) as any
+      await agentApi.updateConfig(assigningSkills, { ...current, skill_ids: selectedSkills })
       setAssigningSkills(null)
       await loadData()
     } catch (e: any) { alert(e.message || 'บันทึกไม่ได้') }
