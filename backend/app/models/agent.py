@@ -17,8 +17,13 @@ class AgentConfig(BaseModel):
         "createReminder", "logActivity", "createContact",
         "sendPreviewEmail", "sendEmail",
     ])
+    skill_ids: List[str] = Field(default_factory=list)
+    is_manager: bool = False
     role_permissions: dict = Field(default_factory=lambda: {
-        "general_user": {"read": [], "write": []},
+        "general_user": {
+            "read": ["getDeals", "getAccounts", "getContacts", "getActivities", "getReminders"],
+            "write": [],
+        },
         "marketing_staff": {
             "read": ["getDeals", "getAccounts", "getContacts", "getActivities", "getReminders"],
             "write": ["createReminder", "logActivity", "createContact"],
