@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from .config import settings as app_settings
 from .database import connect_db, close_db, get_db
-from .routers import auth, expenses, budget, users, inventory, chat, profile, notifications, categories, settings, reports, line_webhook, sse, customers, crm_workspaces, segments, google_sheets, deals, activities, field_history, crm_b2b, agent
+from .routers import auth, expenses, budget, users, inventory, chat, profile, notifications, categories, settings, reports, line_webhook, sse, customers, crm_workspaces, segments, google_sheets, deals, activities, field_history, crm_b2b, agent, skills
 from .services.inventory_service import init_warehouses
 from .services.category_service import ensure_default_categories
 from .services.auth_service import ensure_default_admin
@@ -103,6 +103,7 @@ app.include_router(activities.router)
 app.include_router(field_history.router)
 app.include_router(crm_b2b.router)
 app.include_router(agent.router)
+app.include_router(skills.router)
 
 
 @app.get("/api/health")
