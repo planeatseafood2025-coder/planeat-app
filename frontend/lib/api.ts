@@ -42,7 +42,13 @@ async function request<T>(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Network error' }))
-    throw new Error(err.detail || `HTTP ${res.status}`)
+    const detail = err.detail
+    const message = typeof detail === 'string'
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ')
+        : `HTTP ${res.status}`
+    throw new Error(message)
   }
 
   return res.json() as Promise<T>
@@ -408,6 +414,8 @@ export const crmB2bApi = {
 // ─── AI Agent ─────────────────────────────────────────────────────
 export const agentApi = {
   listAgents: () => request('GET', '/api/agent/list'),
+  createAgent: (data: any) => request('POST', '/api/agent/create', data),
+  deleteAgent: (agentId: string) => request('DELETE', `/api/agent/${agentId}`),
   chat: (agentId: string, message: string, options?: {
     imageBase64?: string
     imageMediaType?: string
@@ -419,9 +427,20 @@ export const agentApi = {
     image_media_type: options?.imageMediaType ?? null,
     pending_email: options?.pendingEmail ?? null,
   }),
+  getHistory: (agentId: string) => request('GET', `/api/agent/history/${agentId}`),
   getConfig: (agentId: string) => request('GET', `/api/agent/config/${agentId}`),
   updateConfig: (agentId: string, data: unknown) =>
     request('PUT', `/api/agent/config/${agentId}`, data),
+  updateAgentSkills: (agentId: string, skillIds: string[]) =>
+    request('PUT', `/api/agent/config/${agentId}`, { skill_ids: skillIds }),
+}
+
+// ─── Skills ───────────────────────────────────────────────────────
+export const skillApi = {
+  list: () => request('GET', '/api/skills'),
+  get: (skillId: string) => request('GET', `/api/skills/${skillId}`),
+  upsert: (skillId: string, data: any) => request('PUT', `/api/skills/${skillId}`, data),
+  delete: (skillId: string) => request('DELETE', `/api/skills/${skillId}`),
 }
 
 // ─── Health ──────────────────────────────────────────────────────
