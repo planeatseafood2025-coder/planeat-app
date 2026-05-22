@@ -7,6 +7,7 @@ from ..database import get_db
 from ..models.agent import AgentConfig, AgentChatRequest
 from .llm_adapter import call_llm
 from .agent_tools import EXECUTORS, WRITE_EXECUTORS, get_allowed_schemas
+from .manager_tools import MANAGER_EXECUTORS
 from .skill_service import list_skills as _list_skills_svc
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,8 @@ async def run_agent(
                     result = await executor(tool_input, smtp_conf)
                 else:
                     result = {"error": "unknown write tool"}
+            elif tool_name in MANAGER_EXECUTORS:
+                result = await MANAGER_EXECUTORS[tool_name](tool_input)
             else:
                 result = {"error": f"tool {tool_name} not found"}
 
