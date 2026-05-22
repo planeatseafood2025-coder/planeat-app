@@ -100,9 +100,21 @@ export default function ChatPage() {
     if (!selected) return
 
     if (selected.isAgent) {
+      const agentId = selected.username.replace('__agent__', '')
       setMessages([])
       setPendingEmail(null)
-      setLoadingMsgs(false)
+      setLoadingMsgs(true)
+      agentApi.getHistory(agentId).then((r: any) => {
+        const msgs: ChatMessage[] = (r.messages || []).map((m: any, i: number) => ({
+          id: `hist-${i}`,
+          roomId: agentId,
+          sender: m.role === 'user' ? (me || 'me') : selected.username,
+          content: m.content,
+          createdAt: m.created_at,
+          type: 'text' as const,
+        }))
+        setMessages(msgs)
+      }).catch(() => {}).finally(() => setLoadingMsgs(false))
       return
     }
 
@@ -238,8 +250,8 @@ export default function ChatPage() {
   const contactMap = Object.fromEntries(contacts.map(c => [c.username, c]))
 
   return (
-    <div className="page-wrapper" style={{ padding: 0 }}>
-      <div style={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+    <div className="page-wrapper" style={{ padding: 0, overflow: 'hidden', height: 'calc(100vh - 64px)' }}>
+      <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
 
         {/* ── Contact list ── */}
         <div style={{ width: 280, borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', flexShrink: 0, background: 'white' }}>
