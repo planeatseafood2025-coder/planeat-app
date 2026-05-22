@@ -70,6 +70,7 @@ const NAV: NavSection[] = [
     items: [
       { page: 'it-access',    label: 'Access Control',    icon: 'admin_panel_settings' },
       { page: 'integrations', label: 'การเชื่อมต่อระบบ', icon: 'hub' },
+      { page: 'ai-manager',   label: '🧠 AI Manager',     icon: 'psychology' },
     ],
   },
 ]

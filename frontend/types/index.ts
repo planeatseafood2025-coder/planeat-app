@@ -369,6 +369,7 @@ export const PAGE_ACCESS: Record<string, Role[]> = {
   'crm-b2b/settings':    ['admin', 'super_admin', 'it_manager'],
   'crm-b2b/campaigns':   ALL_ROLES,
   'chat/agent-settings': ['admin', 'super_admin', 'it_manager'],
+  'ai-manager':          ['admin', 'super_admin', 'it_manager'],
 }
 
 // ─── CRM Workspace ───────────────────────────────────────────────
