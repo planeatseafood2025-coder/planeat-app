@@ -69,7 +69,7 @@ export default function AiManagerPage() {
       {/* Header */}
       <header className="bg-white border-b border-ai-border h-16 flex items-center gap-4 px-6 shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-2xl">🧠</span>
+          <span className="material-icons-round text-ai-primary" style={{ fontSize: 24 }}>hub</span>
           <h1 className="text-lg font-bold text-ai-primary">AI Manager Dashboard</h1>
         </div>
 

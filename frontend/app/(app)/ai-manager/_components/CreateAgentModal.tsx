@@ -33,7 +33,10 @@ export default function CreateAgentModal({ onClose, onCreated }: CreateAgentModa
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
       <div className="bg-white rounded-[14px] p-6 w-[480px] shadow-xl">
-        <h3 className="text-base font-bold text-ai-text mb-4">สร้าง Agent ใหม่</h3>
+        <div className="flex items-center gap-2 mb-4">
+          <span className="material-icons-round text-ai-primary" style={{ fontSize: 20 }}>add_circle_outline</span>
+          <h3 className="text-base font-bold text-ai-text">สร้าง Agent ใหม่</h3>
+        </div>
 
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -50,12 +53,7 @@ export default function CreateAgentModal({ onClose, onCreated }: CreateAgentModa
                 className="w-full border border-ai-border rounded-[14px] py-2 px-3 text-sm focus:outline-none focus:border-ai-primary" />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-ai-text-muted mb-1">Avatar</label>
-              <input value={form.avatar} onChange={e => set('avatar', e.target.value)}
-                className="w-full border border-ai-border rounded-[14px] py-2 px-3 text-sm focus:outline-none focus:border-ai-primary" />
-            </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-ai-text-muted mb-1">Provider</label>
               <select value={form.provider} onChange={e => set('provider', e.target.value)}
@@ -67,7 +65,7 @@ export default function CreateAgentModal({ onClose, onCreated }: CreateAgentModa
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-ai-text-muted mb-1">Personality</label>
+              <label className="block text-xs font-semibold text-ai-text-muted mb-1">บุคลิก</label>
               <select value={form.personality} onChange={e => set('personality', e.target.value)}
                 className="w-full border border-ai-border rounded-[14px] py-2 px-3 text-sm bg-white focus:outline-none focus:border-ai-primary">
                 <option value="friendly">😊 Friendly</option>

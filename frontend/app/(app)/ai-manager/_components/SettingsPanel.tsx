@@ -101,7 +101,9 @@ export default function SettingsPanel({ agent, onDelete, onSaved }: SettingsPane
       {/* Panel Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-ai-border shrink-0">
         <div className="flex items-center gap-3">
-          <span className="text-3xl">{agent.avatar}</span>
+          <span className="material-icons-round text-ai-primary" style={{ fontSize: 28 }}>
+            {config.is_manager ? 'psychology' : 'smart_toy'}
+          </span>
           <div>
             <h2 className="text-base font-bold text-ai-text">{agent.name}</h2>
             <p className="text-xs text-ai-text-muted">{agent.id}</p>
@@ -113,7 +115,7 @@ export default function SettingsPanel({ agent, onDelete, onSaved }: SettingsPane
             className="p-2 rounded-lg text-ai-error hover:bg-ai-error-bg transition-colors"
             title="ลบ agent"
           >
-            🗑️
+            <span className="material-icons-round" style={{ fontSize: 20 }}>delete_outline</span>
           </button>
         )}
       </div>
@@ -124,7 +126,7 @@ export default function SettingsPanel({ agent, onDelete, onSaved }: SettingsPane
         <div className="bg-white border border-ai-border rounded-[14px] p-5 space-y-4">
           <h3 className="text-sm font-bold text-ai-text flex items-center gap-2">
             LLM Provider
-            <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">🚀 เริ่มที่นี่ก่อน</span>
+            <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">เริ่มที่นี่ก่อน</span>
           </h3>
           <div>
             <label className="block text-xs font-semibold text-ai-text-muted mb-1">Provider</label>

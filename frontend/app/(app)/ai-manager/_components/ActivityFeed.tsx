@@ -46,7 +46,7 @@ export default function ActivityFeed() {
         <div className="flex gap-8 animate-marquee whitespace-nowrap">
           {[...mockItems, ...mockItems].map((a, i) => (
             <span key={i} className="text-xs text-ai-text-muted flex items-center gap-1.5">
-              <span>{a.agent_avatar}</span>
+              <span className="material-icons-round text-ai-text-muted" style={{ fontSize: 14 }}>smart_toy</span>
               <span className="font-medium text-ai-text">{a.agent_name}</span>
               <span className="text-ai-text-muted">[{formatTime(a.timestamp)}]</span>
               <span>{a.message}</span>
