@@ -33,6 +33,19 @@ const config: Config = {
           bg: '#ffe4e6',
           dark: '#9f1239',
         },
+        'ai-primary': '#004ac6',
+        'ai-primary-hover': '#003ea8',
+        'ai-surface': '#f7f9fb',
+        'ai-card': '#ffffff',
+        'ai-border': '#e2e8f0',
+        'ai-active': '#10b981',
+        'ai-idle': '#94a3b8',
+        'ai-text': '#191c1e',
+        'ai-text-muted': '#64748b',
+        'ai-error': '#ba1a1a',
+        'ai-error-bg': '#ffdad6',
+        'ai-badge-bg': '#dbe1ff',
+        'ai-badge-text': '#003ea8',
       },
       keyframes: {
         fadePageIn: {
@@ -50,12 +63,17 @@ const config: Config = {
         spin: {
           to: { transform: 'rotate(360deg)' },
         },
+        marquee: {
+          from: { transform: 'translateX(0%)' },
+          to: { transform: 'translateX(-50%)' },
+        },
       },
       animation: {
         fadePageIn: 'fadePageIn 0.2s ease',
         slideIn: 'slideIn 0.3s ease-out',
         pulseGlow: 'pulseGlow 2.5s ease-in-out infinite',
         spin: 'spin 1s linear infinite',
+        marquee: 'marquee 30s linear infinite',
       },
     },
   },

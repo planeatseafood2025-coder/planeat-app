@@ -43,7 +43,6 @@ const NAV: NavSection[] = [
     label: 'การสื่อสาร',
     items: [
       { page: 'chat', label: 'แชท', icon: 'chat' },
-      { page: 'chat/agent-settings', label: 'ตั้งค่า AI Agent', icon: 'smart_toy' },
     ],
   },
   {
