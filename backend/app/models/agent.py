@@ -6,7 +6,9 @@ from datetime import datetime
 class AgentConfig(BaseModel):
     id: str = "marketing_agent_1"
     name: str = "PlaNeat AI (การตลาด)"
-    avatar: str = "🤖"
+    avatar: str = "smart_toy"
+    avatar_color: Optional[str] = None
+    profile_photo: Optional[str] = None
     provider: Literal["anthropic", "openai", "google", "openrouter"] = "anthropic"
     model: str = "claude-sonnet-4-6"
     api_key: str = ""

@@ -1,6 +1,18 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { agentApi, skillApi } from '@/lib/api'
+import AgentAvatar from './AgentAvatar'
+
+const PRESET_ICONS = [
+  'smart_toy', 'psychology', 'support_agent', 'assistant', 'hub',
+  'auto_awesome', 'bolt', 'memory', 'insights', 'android',
+  'account_circle', 'face', 'emoji_objects', 'record_voice_over', 'engineering',
+]
+
+const PRESET_COLORS = [
+  '#004ac6', '#7c3aed', '#0891b2', '#059669', '#d97706',
+  '#dc2626', '#db2777', '#334155', '#1d4ed8', '#065f46',
+]
 
 const PROVIDERS = [
   { value: 'openrouter', label: 'OpenRouter', hint: 'แนะนำ — รองรับหลาย model รวมถึง model ฟรี', keyLink: 'https://openrouter.ai/keys' },
@@ -38,6 +50,7 @@ export default function SettingsPanel({ agent, onDelete, onSaved }: SettingsPane
   const [skills, setSkills] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!agent) { setConfig(null); return }
@@ -67,6 +80,15 @@ export default function SettingsPanel({ agent, onDelete, onSaved }: SettingsPane
         ? c.tools_enabled.filter((t: string) => t !== tool)
         : [...(c.tools_enabled || []), tool],
     }))
+  }
+
+  function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 500 * 1024) return alert('รูปต้องไม่เกิน 500KB')
+    const reader = new FileReader()
+    reader.onload = () => set('profile_photo', reader.result as string)
+    reader.readAsDataURL(file)
   }
 
   function toggleSkill(skillId: string) {
@@ -101,9 +123,13 @@ export default function SettingsPanel({ agent, onDelete, onSaved }: SettingsPane
       {/* Panel Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-ai-border shrink-0">
         <div className="flex items-center gap-3">
-          <span className="material-icons-round text-ai-primary" style={{ fontSize: 28 }}>
-            {config.is_manager ? 'psychology' : 'smart_toy'}
-          </span>
+          <AgentAvatar
+            icon={config.avatar}
+            iconColor={config.avatar_color}
+            profilePhoto={config.profile_photo}
+            isManager={config.is_manager}
+            size={40}
+          />
           <div>
             <h2 className="text-base font-bold text-ai-text">{agent.name}</h2>
             <p className="text-xs text-ai-text-muted">{agent.id}</p>
@@ -158,17 +184,75 @@ export default function SettingsPanel({ agent, onDelete, onSaved }: SettingsPane
         {/* Group 2: Identity */}
         <div className="bg-white border border-ai-border rounded-[14px] p-5 space-y-4">
           <h3 className="text-sm font-bold text-ai-text">ข้อมูลพื้นฐาน</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-ai-text-muted mb-1">ชื่อ</label>
-              <input value={config.name || ''} onChange={e => set('name', e.target.value)}
-                className="w-full border border-ai-border rounded-[14px] py-2 px-3 text-sm text-ai-text focus:outline-none focus:border-ai-primary" />
+
+          {/* Profile photo + icon/color */}
+          <div className="flex gap-4 items-start">
+            <div className="shrink-0">
+              <AgentAvatar
+                icon={config.avatar}
+                iconColor={config.avatar_color}
+                profilePhoto={config.profile_photo}
+                isManager={config.is_manager}
+                size={64}
+              />
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-ai-text-muted mb-1">Avatar (emoji)</label>
-              <input value={config.avatar || ''} onChange={e => set('avatar', e.target.value)}
-                className="w-full border border-ai-border rounded-[14px] py-2 px-3 text-sm text-ai-text focus:outline-none focus:border-ai-primary" />
+            <div className="flex-1 space-y-2">
+              <div>
+                <label className="block text-xs font-semibold text-ai-text-muted mb-1">รูปโปรไฟล์</label>
+                <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                <div className="flex gap-2">
+                  <button onClick={() => photoInputRef.current?.click()}
+                    className="text-xs px-3 py-1.5 border border-ai-border rounded-lg text-ai-text hover:border-ai-primary transition-colors flex items-center gap-1">
+                    <span className="material-icons-round" style={{ fontSize: 14 }}>upload</span>
+                    อัปโหลดรูป
+                  </button>
+                  {config.profile_photo && (
+                    <button onClick={() => set('profile_photo', null)}
+                      className="text-xs px-3 py-1.5 border border-ai-border rounded-lg text-ai-error hover:bg-ai-error-bg transition-colors">
+                      ลบรูป
+                    </button>
+                  )}
+                </div>
+              </div>
+              {!config.profile_photo && (
+                <div>
+                  <label className="block text-xs font-semibold text-ai-text-muted mb-1">ไอคอน</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRESET_ICONS.map(ic => (
+                      <button key={ic} onClick={() => set('avatar', ic)}
+                        title={ic}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-colors ${
+                          (config.avatar || 'smart_toy') === ic
+                            ? 'border-ai-primary bg-blue-50'
+                            : 'border-ai-border hover:border-ai-primary'
+                        }`}>
+                        <span className="material-icons-round" style={{ fontSize: 16, color: (config.avatar || 'smart_toy') === ic ? '#004ac6' : '#64748b' }}>{ic}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!config.profile_photo && (
+                <div>
+                  <label className="block text-xs font-semibold text-ai-text-muted mb-1">สีพื้นหลัง</label>
+                  <div className="flex gap-1.5">
+                    {PRESET_COLORS.map(color => (
+                      <button key={color} onClick={() => set('avatar_color', color)}
+                        style={{ background: color }}
+                        className={`w-6 h-6 rounded-full border-2 transition-all ${
+                          (config.avatar_color || '#004ac6') === color ? 'border-white ring-2 ring-ai-primary scale-110' : 'border-white'
+                        }`} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-ai-text-muted mb-1">ชื่อ</label>
+            <input value={config.name || ''} onChange={e => set('name', e.target.value)}
+              className="w-full border border-ai-border rounded-[14px] py-2 px-3 text-sm text-ai-text focus:outline-none focus:border-ai-primary" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ai-text-muted mb-1">บุคลิก</label>

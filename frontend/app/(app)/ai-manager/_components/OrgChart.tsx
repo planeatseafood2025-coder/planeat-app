@@ -1,9 +1,12 @@
 'use client'
+import AgentAvatar from './AgentAvatar'
 
 interface Agent {
   id: string
   name: string
-  avatar: string
+  avatar?: string
+  avatar_color?: string
+  profile_photo?: string
   is_manager?: boolean
 }
 
@@ -27,7 +30,7 @@ export default function OrgChart({ agents, selectedId, onSelect, onCreateClick }
           className={`w-56 bg-white border-2 rounded-[14px] p-4 flex flex-col items-center gap-2 cursor-pointer transition-all shadow-[0_4px_12px_rgba(0,74,198,0.1)]
             ${selectedId === manager.id ? 'border-ai-primary' : 'border-ai-border hover:border-ai-primary'}`}
         >
-          <span className="material-icons-round text-ai-primary" style={{ fontSize: 32 }}>psychology</span>
+          <AgentAvatar icon={manager.avatar} iconColor={manager.avatar_color} profilePhoto={manager.profile_photo} isManager size={48} />
           <span className="text-sm font-semibold text-ai-text">{manager.name}</span>
           <span className="text-[10px] font-bold bg-ai-badge-bg text-ai-badge-text px-2 py-0.5 rounded-full">MANAGER</span>
         </div>
@@ -51,7 +54,7 @@ export default function OrgChart({ agents, selectedId, onSelect, onCreateClick }
               }`}
           >
             <div className="flex items-center gap-3">
-              <span className="material-icons-round text-ai-text-muted" style={{ fontSize: 24 }}>smart_toy</span>
+              <AgentAvatar icon={agent.avatar} iconColor={agent.avatar_color} profilePhoto={agent.profile_photo} size={36} />
               <span className="text-sm font-semibold text-ai-text">{agent.name}</span>
             </div>
             <div className="w-2.5 h-2.5 rounded-full bg-ai-idle" title="ว่าง" />

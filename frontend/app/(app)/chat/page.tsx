@@ -8,6 +8,15 @@ import { ROLE_LABELS } from '@/types'
 // SSE replaces polling — ค่านี้ยังเก็บไว้เป็น fallback timeout
 const POLL_MS = 3000
 
+function AgentAvatarInline({ icon, color, photo, size = 36 }: { icon?: string; color?: string; photo?: string; size?: number }) {
+  if (photo) return <img src={photo} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', background: color || '#004ac6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <span className="material-icons-round" style={{ fontSize: size * 0.52, color: '#fff' }}>{icon || 'smart_toy'}</span>
+    </div>
+  )
+}
+
 function Avatar({ contact, size = 36 }: { contact: ChatContact; size?: number }) {
   if (contact.profilePhoto) {
     return (
@@ -68,6 +77,8 @@ export default function ChatPage() {
         role: 'general_user' as any,
         isAgent: true,
         agentAvatar: a.avatar,
+        agentAvatarColor: a.avatar_color,
+        agentProfilePhoto: a.profile_photo,
       }))
       setAgents(agentContacts)
     }).catch(() => {})
@@ -280,8 +291,8 @@ export default function ChatPage() {
                   borderLeft: selected?.username === agent.username ? '3px solid #2563eb' : '3px solid transparent',
                   borderBottom: '1px solid #dbeafe',
                 }}>
-                <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#2563eb,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, position: 'relative' }}>
-                  {agent.agentAvatar || '🤖'}
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <AgentAvatarInline icon={agent.agentAvatar} color={agent.agentAvatarColor} photo={(agent as any).agentProfilePhoto} size={38} />
                   <div style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }} />
                 </div>
                 <div style={{ minWidth: 0 }}>
@@ -345,9 +356,7 @@ export default function ChatPage() {
               {/* Header */}
               <div style={{ padding: '12px 20px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 12 }}>
                 {selected.isAgent ? (
-                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#2563eb,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-                    {selected.agentAvatar || '🤖'}
-                  </div>
+                  <AgentAvatarInline icon={selected.agentAvatar} color={(selected as any).agentAvatarColor} photo={(selected as any).agentProfilePhoto} size={40} />
                 ) : (
                   <Avatar contact={selected} size={40} />
                 )}
@@ -384,8 +393,8 @@ export default function ChatPage() {
                         <div key={msg.id} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', marginBottom: 8, alignItems: 'flex-end', gap: 8 }}>
                           {/* Sender avatar (others only) */}
                           {!isMine && isAgentMsg && (
-                            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#2563eb,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, marginBottom: 2 }}>
-                              {selected?.agentAvatar || '🤖'}
+                            <div style={{ marginBottom: 2 }}>
+                              <AgentAvatarInline icon={selected?.agentAvatar} color={(selected as any)?.agentAvatarColor} photo={(selected as any)?.agentProfilePhoto} size={28} />
                             </div>
                           )}
                           {!isMine && senderContact && (
