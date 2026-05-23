@@ -3,6 +3,7 @@ Agent Service — orchestrates: load config → permission check → LLM call �
 """
 import json
 import logging
+from datetime import datetime
 from ..database import get_db
 from ..models.agent import AgentConfig, AgentChatRequest
 from .llm_adapter import call_llm
@@ -172,6 +173,19 @@ async def _get_tools_with_skills(config: AgentConfig, user_role: str) -> list:
     return base_schemas
 
 
+async def log_activity(db, agent_id: str, agent_name: str, agent_avatar: str, message: str):
+    try:
+        await db.agent_activity.insert_one({
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "agent_avatar": agent_avatar,
+            "message": message,
+            "timestamp": datetime.utcnow(),
+        })
+    except Exception:
+        pass  # activity logging must never break the main flow
+
+
 async def run_agent(
     req: AgentChatRequest,
     user_username: str,
@@ -223,6 +237,14 @@ async def run_agent(
         logger.info(f"Agent iteration {iteration}: type={llm_result['type']}")
 
         if llm_result["type"] == "text":
+            db = get_db()
+            await log_activity(
+                db=db,
+                agent_id=config.id,
+                agent_name=config.name,
+                agent_avatar=config.avatar,
+                message="ประมวลผลคำขอสำเร็จ",
+            )
             return {"reply": llm_result["content"], "pending_email": pending_email}
 
         # Handle tool calls

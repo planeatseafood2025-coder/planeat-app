@@ -76,6 +76,22 @@ async def update_config(agent_id: str, body: AgentConfig, current: dict = Depend
     return {"success": True}
 
 
+@router.get("/activity")
+async def get_agent_activity(
+    limit: int = 20,
+    db=Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") not in IT_ROLES:
+        raise HTTPException(status_code=403, detail="Access denied")
+    cursor = db.agent_activity.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit)
+    activities = await cursor.to_list(length=limit)
+    for a in activities:
+        if "timestamp" in a and hasattr(a["timestamp"], "isoformat"):
+            a["timestamp"] = a["timestamp"].isoformat()
+    return {"activities": activities}
+
+
 @router.get("/list")
 async def list_agents(current: dict = Depends(get_current_user)):
     """Return all configured agents (api_key stripped)."""

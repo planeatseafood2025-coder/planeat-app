@@ -443,6 +443,17 @@ export const skillApi = {
   delete: (skillId: string) => request('DELETE', `/api/skills/${skillId}`),
 }
 
+// ─── Agent Activity ───────────────────────────────────────────────
+export const agentActivityApi = {
+  list: () => request<{ activities: Array<{
+    agent_id: string
+    agent_name: string
+    agent_avatar: string
+    message: string
+    timestamp: string
+  }> }>('GET', '/api/agent/activity'),
+}
+
 // ─── Health ──────────────────────────────────────────────────────
 export const healthApi = {
   ping: () => request('GET', '/api/health'),
