@@ -479,7 +479,7 @@ async def create_activity(req: CrmActivityCreate, current: dict = Depends(get_cu
     db = get_db()
     doc = req.dict()
     doc["_id"] = str(uuid.uuid4())
-    doc["createdAt"] = datetime.now(timezone.utc).isoformat()
+    doc["createdAt"] = doc.pop("createdAt", None) or datetime.now(timezone.utc).isoformat()
     doc["createdBy"] = current.get("sub", "")
     account = await db.crm_accounts.find_one({"_id": doc["accountId"]})
     if account:

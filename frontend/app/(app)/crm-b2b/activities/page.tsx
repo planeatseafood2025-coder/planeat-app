@@ -31,7 +31,13 @@ function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-const BLANK = { accountId: '', type: 'note', note: '', language: 'th', nextAction: '', nextActionDate: '' }
+function todayLocalISO() {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
+}
+
+const BLANK = { accountId: '', type: 'note', note: '', language: 'th', nextAction: '', nextActionDate: '', activityDate: '' }
 
 export default function ActivityLogPage() {
   const router = useRouter()
@@ -70,7 +76,12 @@ export default function ActivityLogPage() {
   async function handleSave() {
     setSaving(true)
     try {
-      await crmB2bApi.createActivity(modal.data)
+      const payload: any = { ...modal.data }
+      if (payload.activityDate) {
+        payload.createdAt = new Date(payload.activityDate).toISOString()
+      }
+      delete payload.activityDate
+      await crmB2bApi.createActivity(payload)
       setModal({ open: false, data: {} })
       await load()
     } catch (e: any) { alert(e.message) }
@@ -168,6 +179,15 @@ export default function ActivityLogPage() {
               <button onClick={() => setModal({ open: false, data: {} })} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}><span className="material-icons-round">close</span></button>
             </div>
             <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>วันที่และเวลา <span style={{ color: '#94a3b8', fontWeight: 400 }}>(ย้อนหลังได้)</span></label>
+                <input
+                  type="datetime-local"
+                  value={modal.data.activityDate || todayLocalISO()}
+                  onChange={e => setField('activityDate', e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>บริษัท *</label>
                 <select value={modal.data.accountId || ''} onChange={e => setField('accountId', e.target.value)} style={inputStyle}>

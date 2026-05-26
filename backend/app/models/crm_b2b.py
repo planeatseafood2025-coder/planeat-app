@@ -110,6 +110,7 @@ class CrmActivityCreate(BaseModel):
     language: str = "th"
     nextAction: Optional[str] = None
     nextActionDate: Optional[str] = None
+    createdAt: Optional[str] = None  # allow backdating; defaults to now if not provided
 
 
 class CrmReminderCreate(BaseModel):
