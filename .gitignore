@@ -49,6 +49,7 @@ Thumbs.db
 
 # ─── Claude Code ──────────────────────────────────────────
 .claude/settings.local.json
+.worktrees/
 
 # ─── PDF / Uploaded files ─────────────────────────────────
 backend/pdf_storage/
@@ -57,3 +58,4 @@ uploads/
 # ─── MongoDB local dump ───────────────────────────────────
 mongo_dump/
 *.bson
+.ssh/
