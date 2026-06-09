@@ -23,6 +23,49 @@ export interface UserPermissions {
   repair: boolean
 }
 
+export type MailSecurity = 'ssl' | 'starttls' | 'none'
+export type CompanyMailStatus = 'not_configured' | 'needs_password' | 'connected' | 'failed' | 'disabled'
+
+export interface CompanyMailAccount {
+  enabled: boolean
+  emailAddress: string
+  displayName: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: MailSecurity
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: MailSecurity
+  username: string
+  verifiedAt: string
+  lastTestedAt: string
+  status: CompanyMailStatus
+  lastError: string
+}
+
+export interface CompanyMailAccountInput {
+  enabled: boolean
+  emailAddress: string
+  displayName: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: MailSecurity
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: MailSecurity
+  username: string
+  password?: string
+  confirmPassword?: string
+}
+
+export interface MailRecipientSuggestion {
+  id: string
+  email: string
+  name: string
+  company: string
+  sourceType: 'crm_contact' | 'crm_account' | 'customer'
+}
+
 export interface User {
   username: string
   name: string
@@ -33,11 +76,17 @@ export interface User {
   nickname?: string
   phone?: string
   lineId?: string
+  lineUid?: string
+  lineDisplayName?: string
+  linePictureUrl?: string
   jobTitle?: string
   status?: UserStatus
   token?: string
   profilePhoto?: string
   signature?: string
+  createdAt?: string
+  loginType?: 'line' | 'password'
+  companyMailAccount?: CompanyMailAccount
 }
 
 // ─── Notifications ────────────────────────────────────────────────
@@ -306,6 +355,9 @@ export interface UserRecord {
   status: UserStatus
   permissions: UserPermissions
   profilePhoto?: string
+  createdAt?: string
+  loginType?: 'line' | 'password'
+  companyMailAccount?: CompanyMailAccount
 }
 
 // ─── UI Helpers ──────────────────────────────────────────────────
@@ -349,6 +401,7 @@ export const PAGE_ACCESS: Record<string, Role[]> = {
   overview:            ALL_ROLES,
   expense:             ['super_admin','it_manager','accounting_manager','accountant','admin','recorder'],
   'expense-control':   ALL_ROLES,
+  'payroll-branch':    ['super_admin','it_manager','accounting_manager','accountant','production_manager','production_staff','admin'],
   budget:              ['super_admin','it_manager','accounting_manager','accountant','admin'],
   employees:           ['super_admin','it_manager','hr_manager','hr','admin'],
   inventory:           ['super_admin','it_manager','warehouse_manager','warehouse_staff',
@@ -357,6 +410,7 @@ export const PAGE_ACCESS: Record<string, Role[]> = {
   reports:             ['super_admin','it_manager','accounting_manager','admin'],
   'it-access':         ['super_admin','it_manager','it_support','admin'],
   chat:                ALL_ROLES,
+  mail:                ALL_ROLES,
   customers:           ['super_admin','it_manager','accounting_manager','marketing_manager','marketing_staff','admin'],
   integrations:        ['super_admin','it_manager','it_support','admin'],
   'customers/segments':     ALL_ROLES,
@@ -524,6 +578,7 @@ export const PAGE_TITLES: Record<string, string> = {
   overview:          'ภาพรวม',
   expense:           'บันทึกค่าใช้จ่าย',
   'expense-control': 'ระบบควบคุมค่าใช้จ่าย',
+  'payroll-branch':  'ระบบค่าแรงสาขา',
   budget:            'งบประมาณ',
   employees:  'ข้อมูลพนักงาน',
   inventory:  'คลังสินค้า',
@@ -626,6 +681,9 @@ export interface ExpenseCategory {
   createdAt: string
   createdBy: string
   notificationSchedule?: NotificationSchedule
+  hasSpecialExpense?: boolean
+  specialExpenseName?: string
+  specialExpenseFields?: CategoryField[]
 }
 
 export interface CategoriesResponse {
@@ -667,6 +725,7 @@ export interface ExpenseDraft {
   recorderLineId: string
   date: string
   category: string
+  label?: string
   catKey: CatKey
   rows: unknown[]
   total: number
@@ -697,6 +756,86 @@ export interface ExpenseRecord {
   approvedAt?: string
   draftId?: string
   createdAt?: string
+}
+
+// ─── Branch Payroll ──────────────────────────────────────────────
+export type BranchPayrollPeriodStatus = 'draft' | 'calculating' | 'ready' | 'closed'
+
+export type BranchPayrollEmployeeStatus = 'active' | 'inactive'
+
+export type BranchPayrollPayGroup = 'social_security' | 'withholding_tax' | 'cash'
+
+export type BranchPayrollSummaryStatus = 'ready' | 'review' | 'warning'
+
+export interface BranchPayrollPeriod {
+  id: string
+  branchId: string
+  branchName: string
+  monthKey: string
+  monthLabel: string
+  periodKey: string
+  periodLabel: string
+  startDate: string
+  endDate: string
+  status: BranchPayrollPeriodStatus
+}
+
+export interface BranchPayrollEmployee {
+  id: string
+  employeeCode: string
+  fullName: string
+  branchId: string
+  branchName: string
+  travelType: 'self' | 'company' | 'mixed'
+  payGroup: BranchPayrollPayGroup
+  status: BranchPayrollEmployeeStatus
+}
+
+export interface BranchPayrollWorkColumn {
+  id: string
+  fishType: string
+  taskLabel: string
+  sizeLabel?: string
+  unitLabel: string
+  rate: number
+}
+
+export interface BranchPayrollDailyRow {
+  employeeId: string
+  employeeCode: string
+  fullName: string
+  travelType: string
+  weights: Record<string, number>
+  otHours: number
+  guaranteeHours: number
+  adjustment: number
+  adjustmentNote: string
+}
+
+export interface BranchPayrollRuleSet {
+  baseGuaranteeAmount: number
+  otRatePerHour: number
+  guaranteeRatePerHour: number
+  travelRatePerDay: number
+  deductionSocialSecurityEnabled: boolean
+  deductionSocialSecurityMode: 'disabled' | 'percent' | 'fixed'
+  deductionSocialSecurityValue: number
+}
+
+export interface BranchPayrollSummaryRow {
+  employeeId: string
+  employeeCode: string
+  fullName: string
+  daysWorked: number
+  performancePay: number
+  otPay: number
+  guaranteePay: number
+  travelPay: number
+  adjustment: number
+  deductions: number
+  netPay: number
+  status: BranchPayrollSummaryStatus
+  adjustmentNote?: string
 }
 
 export interface DraftsResponse {

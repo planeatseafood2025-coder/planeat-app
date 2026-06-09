@@ -39,6 +39,9 @@ class CreateCategoryRequest(BaseModel):
     allowedUsers:         List[str] = []
     order:                int   = 999
     notificationSchedule: Optional[NotificationSchedule] = None
+    hasSpecialExpense:     bool  = False
+    specialExpenseName:   str   = "ค่าใช้จ่ายพิเศษ"
+    specialExpenseFields: List[CategoryField] = []
 
 class UpdateCategoryRequest(BaseModel):
     name:                 Optional[str]       = None
@@ -51,3 +54,6 @@ class UpdateCategoryRequest(BaseModel):
     order:                Optional[int]       = None
     isActive:             Optional[bool]      = None
     notificationSchedule: Optional[NotificationSchedule] = None
+    hasSpecialExpense:     Optional[bool]     = None
+    specialExpenseName:   Optional[str]      = None
+    specialExpenseFields: Optional[List[CategoryField]] = None

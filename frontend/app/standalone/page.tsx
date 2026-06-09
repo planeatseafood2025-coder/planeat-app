@@ -231,6 +231,7 @@ function StandaloneInner() {
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [openPanel, setOpenPanel] = useState<string | null>(null)
   const [panels, setPanels] = useState<Record<string, Record<string, string>[]>>({})
+  const [specialItems, setSpecialItems] = useState<Record<string, Record<string, string>>>({})
   const [budget, setBudget] = useState<BudgetResponse | null>(null)
   const [submitting, setSubmitting] = useState<string | null>(null)
 
@@ -356,6 +357,28 @@ function StandaloneInner() {
       }) as { success: boolean; message: string }
 
       if (res.success) {
+        // Submit special expense if filled
+        const specialItem = specialItems[cat.id]
+        if (cat.hasSpecialExpense && specialItem) {
+          const specialFields = cat.specialExpenseFields || []
+          const hasData = specialFields.some(f => specialItem[f.fieldId])
+          if (hasData) {
+            const specialRow: Record<string, string | number> = {}
+            specialFields.forEach(f => {
+              specialRow[f.fieldId] = f.type === 'number' ? (parseFloat(specialItem[f.fieldId] || '0') || 0) : (specialItem[f.fieldId] || '')
+            })
+            await dynamicDraftApi.submitPublic({
+              username:        systemUsername,
+              recorderName:    userFirstName || userName,
+              recorderLineUid: userLineUid,
+              catId:           cat.id,
+              date:            isoToThai(date),
+              rows:            [specialRow],
+              labelOverride:   cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ',
+            })
+            setSpecialItems(prev => { const n = { ...prev }; delete n[cat.id]; return n })
+          }
+        }
         setPanels(p => ({ ...p, [cat.id]: [] }))
         setOpenPanel(null)
         Swal.fire({ icon: 'success', title: 'ส่งเรื่องสำเร็จ!', text: res.message, timer: 2500, showConfirmButton: false })
@@ -639,6 +662,38 @@ function StandaloneInner() {
                       onDelete={() => removeItem(cat.id, idx)}
                     />
                   ))}
+
+                  {/* ค่าใช้จ่ายพิเศษ */}
+                  {cat.hasSpecialExpense && cat.specialExpenseFields && cat.specialExpenseFields.length > 0 && (
+                    <div style={{ marginTop: 12, padding: 14, background: '#fefce8', borderRadius: 12, border: '1px solid #fde68a' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <span className="material-icons-round" style={{ fontSize: 16, color: '#d97706' }}>star</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>{cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ'}</span>
+                        <span style={{ fontSize: 11, color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: 10 }}>ไม่บังคับ</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+                        {cat.specialExpenseFields.map(f => {
+                          const val = specialItems[cat.id]?.[f.fieldId] || ''
+                          return (
+                            <div key={f.fieldId}>
+                              <label style={{ display: 'block', fontSize: 11, color: '#78716c', marginBottom: 4 }}>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
+                              <input
+                                type={f.type === 'number' ? 'number' : 'text'}
+                                className="form-input"
+                                style={{ fontSize: 13, padding: '7px 10px' }}
+                                placeholder={f.placeholder || (f.type === 'number' ? '0' : '')}
+                                value={val}
+                                onChange={e => setSpecialItems(prev => ({
+                                  ...prev,
+                                  [cat.id]: { ...(prev[cat.id] || {}), [f.fieldId]: e.target.value }
+                                }))}
+                              />
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between mt-4">
                     <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => addItem(cat.id)}>

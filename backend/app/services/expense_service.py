@@ -132,6 +132,7 @@ async def _submit_draft_internal(
     date_str: str,
     is_standalone: bool = False,
     line_items: list = None,
+    label: str = "",
 ) -> dict:
     """สร้าง draft + notify managers (in-app + LINE) — จุดเดียว ใช้ร่วมทั้ง 3 path."""
     now = datetime.now(timezone.utc)
@@ -144,6 +145,7 @@ async def _submit_draft_internal(
         "date_iso": thai_date_to_iso(date_str),
         "category": cat_name,
         "catKey": cat_key,
+        "label": label or cat_name,
         "rows": rows,
         "total": total,
         "detail": detail,
@@ -517,6 +519,7 @@ async def submit_draft_dynamic(payload: dict, current: dict) -> dict:
         cat["name"], cat_id, rows, total,
         ", ".join(details), payload.get("note", ""), date_str,
         line_items=line_items,
+        label=payload.get("labelOverride", "") or cat["name"],
     )
 
 
@@ -552,6 +555,7 @@ async def submit_draft_dynamic_public(payload: dict) -> dict:
         ", ".join(details), payload.get("note", ""), date_str,
         is_standalone=True,
         line_items=line_items,
+        label=payload.get("labelOverride", "") or cat["name"],
     )
 
 
