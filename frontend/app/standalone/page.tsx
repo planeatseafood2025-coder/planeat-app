@@ -663,42 +663,45 @@ function StandaloneInner() {
                     />
                   ))}
 
-                  {/* ค่าใช้จ่ายพิเศษ */}
-                  {cat.hasSpecialExpense && cat.specialExpenseFields && cat.specialExpenseFields.length > 0 && (
-                    <div style={{ marginTop: 12, padding: 14, background: '#fefce8', borderRadius: 12, border: '1px solid #fde68a' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                        <span className="material-icons-round" style={{ fontSize: 16, color: '#d97706' }}>star</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>{cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ'}</span>
-                        <span style={{ fontSize: 11, color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: 10 }}>ไม่บังคับ</span>
+                  {/* ค่าใช้จ่ายพิเศษ — DynamicItemCard */}
+                  {cat.hasSpecialExpense && cat.specialExpenseFields && cat.specialExpenseFields.length > 0 && specialItems[cat.id] !== undefined && (() => {
+                    const spCat = { ...cat, id: cat.id + '_sp', name: cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ', formula: (cat.specialExpenseFormula || 'fixed') as ExpenseCategory['formula'], fields: cat.specialExpenseFields as ExpenseCategory['fields'] }
+                    const spItem = specialItems[cat.id]
+                    return (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, paddingLeft: 2 }}>
+                          <span className="material-icons-round" style={{ fontSize: 15, color: '#d97706' }}>star</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>{cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ'}</span>
+                          <span style={{ fontSize: 11, color: '#b45309', background: '#fef3c7', padding: '1px 7px', borderRadius: 10 }}>ไม่บังคับ</span>
+                          <button onClick={() => setSpecialItems(prev => { const n = { ...prev }; delete n[cat.id]; return n })}
+                            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12, display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>ยกเลิก
+                          </button>
+                        </div>
+                        <div style={{ background: '#fefce8', borderRadius: 12, border: '1px solid #fde68a', padding: 4 }}>
+                          <DynamicItemCard cat={spCat as ExpenseCategory} item={spItem} idx={0} total={calcTotalDynamic(spCat as ExpenseCategory, spItem)} canDelete={false}
+                            onChange={(fId, v) => setSpecialItems(prev => ({ ...prev, [cat.id]: { ...(prev[cat.id] || {}), [fId]: v } }))}
+                            onDelete={() => {}} />
+                        </div>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-                        {cat.specialExpenseFields.map(f => {
-                          const val = specialItems[cat.id]?.[f.fieldId] || ''
-                          return (
-                            <div key={f.fieldId}>
-                              <label style={{ display: 'block', fontSize: 11, color: '#78716c', marginBottom: 4 }}>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
-                              <input
-                                type={f.type === 'number' ? 'number' : 'text'}
-                                className="form-input"
-                                style={{ fontSize: 13, padding: '7px 10px' }}
-                                placeholder={f.placeholder || (f.type === 'number' ? '0' : '')}
-                                value={val}
-                                onChange={e => setSpecialItems(prev => ({
-                                  ...prev,
-                                  [cat.id]: { ...(prev[cat.id] || {}), [f.fieldId]: e.target.value }
-                                }))}
-                              />
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
+                    )
+                  })()}
 
                   <div className="flex items-center justify-between mt-4">
+                    <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => addItem(cat.id)}>
                       <span className="material-icons-round" style={{ fontSize: 14 }}>add</span> เพิ่มรายการ
                     </button>
+                    {cat.hasSpecialExpense && cat.specialExpenseFields && cat.specialExpenseFields.length > 0 && specialItems[cat.id] === undefined && (
+                      <button onClick={() => {
+                        const defaults: Record<string, string> = {}
+                        ;(cat.specialExpenseFields || []).forEach(f => { defaults[f.fieldId] = '' })
+                        setSpecialItems(prev => ({ ...prev, [cat.id]: defaults }))
+                      }} style={{ padding: '6px 12px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span className="material-icons-round" style={{ fontSize: 14 }}>star</span>เพิ่ม{cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ'}
+                      </button>
+                    )}
+                    </div>
                     <button className="btn-primary" style={{ fontSize: 12, padding: '6px 20px', background: cat.color, border: 'none' }} onClick={() => submitCat(cat)} disabled={submitting === cat.id}>
                       {submitting === cat.id ? (
                         <><span className="material-icons-round spin" style={{ fontSize: 14 }}>refresh</span>กำลังส่ง...</>

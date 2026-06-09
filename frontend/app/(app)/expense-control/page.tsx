@@ -874,6 +874,7 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
               date: isoToThai(date),
               rows: [specialRow],
               labelOverride: cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ',
+              specialFormula: cat.specialExpenseFormula || 'fixed',
             })
             setSpecialItems(prev => { const n = { ...prev }; delete n[catId]; return n })
           }
@@ -1043,42 +1044,58 @@ function DailyTab({ user, flash, catVersion }: { user: ReturnType<typeof getSess
                       onDelete={() => removeItem(cat.id, idx)} />
                   ))}
 
-                  {/* ค่าใช้จ่ายพิเศษ section */}
-                  {cat.hasSpecialExpense && cat.specialExpenseFields && cat.specialExpenseFields.length > 0 && (
-                    <div style={{ marginTop: 12, padding: 14, background: '#fefce8', borderRadius: 12, border: '1px solid #fde68a' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                        <span className="material-icons-round" style={{ fontSize: 16, color: '#d97706' }}>star</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>{cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ'}</span>
-                        <span style={{ fontSize: 11, color: '#b45309', background: '#fef3c7', padding: '2px 8px', borderRadius: 10 }}>ไม่บังคับ</span>
+                  {/* ค่าใช้จ่ายพิเศษ section — แสดงเมื่อ toggle เปิด */}
+                  {cat.hasSpecialExpense && cat.specialExpenseFields && cat.specialExpenseFields.length > 0 && specialItems[cat.id] !== undefined && (() => {
+                    const spCat = {
+                      ...cat,
+                      id: cat.id + '_sp',
+                      name: cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ',
+                      formula: (cat.specialExpenseFormula || 'fixed') as ExpenseCategory['formula'],
+                      fields: cat.specialExpenseFields as ExpenseCategory['fields'],
+                    }
+                    const spItem = specialItems[cat.id]
+                    const spTotal = calcPreview(spCat as ExpenseCategory, spItem)
+                    return (
+                      <div style={{ marginTop: 12, padding: '4px 0 0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, paddingLeft: 2 }}>
+                          <span className="material-icons-round" style={{ fontSize: 15, color: '#d97706' }}>star</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>{cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ'}</span>
+                          <span style={{ fontSize: 11, color: '#b45309', background: '#fef3c7', padding: '1px 7px', borderRadius: 10 }}>ไม่บังคับ</span>
+                          <button onClick={() => setSpecialItems(prev => { const n = { ...prev }; delete n[cat.id]; return n })}
+                            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12, display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <span className="material-icons-round" style={{ fontSize: 14 }}>close</span>ยกเลิก
+                          </button>
+                        </div>
+                        <div style={{ background: '#fefce8', borderRadius: 12, border: '1px solid #fde68a', padding: 4 }}>
+                          <DynamicItemCard
+                            cat={spCat as ExpenseCategory}
+                            item={spItem}
+                            idx={0}
+                            total={spTotal}
+                            canDelete={false}
+                            onChange={(fId, v) => setSpecialItems(prev => ({ ...prev, [cat.id]: { ...(prev[cat.id] || {}), [fId]: v } }))}
+                            onDelete={() => {}}
+                          />
+                        </div>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-                        {cat.specialExpenseFields.map(f => {
-                          const val = specialItems[cat.id]?.[f.fieldId] || ''
-                          return (
-                            <div key={f.fieldId}>
-                              <label style={{ display: 'block', fontSize: 11, color: '#78716c', marginBottom: 4 }}>{f.label}{f.unit ? ` (${f.unit})` : ''}</label>
-                              <input
-                                type={f.type === 'number' ? 'number' : 'text'}
-                                className="form-input"
-                                style={{ fontSize: 13, padding: '7px 10px' }}
-                                placeholder={f.placeholder || (f.type === 'number' ? '0' : '')}
-                                value={val}
-                                onChange={e => setSpecialItems(prev => ({
-                                  ...prev,
-                                  [cat.id]: { ...(prev[cat.id] || {}), [f.fieldId]: e.target.value }
-                                }))}
-                              />
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
+                    )
+                  })()}
 
-                  <div className="flex items-center justify-between mt-3">
-                    <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => addItem(cat.id, cat)}>
-                      <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>เพิ่มรายการ
-                    </button>
+                  <div className="flex items-center justify-between mt-3" style={{ gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => addItem(cat.id, cat)}>
+                        <span className="material-icons-round" style={{ fontSize: 14 }}>add</span>เพิ่มรายการ
+                      </button>
+                      {cat.hasSpecialExpense && cat.specialExpenseFields && cat.specialExpenseFields.length > 0 && specialItems[cat.id] === undefined && (
+                        <button onClick={() => {
+                          const defaults: Record<string, string> = {}
+                          ;(cat.specialExpenseFields || []).forEach(f => { defaults[f.fieldId] = '' })
+                          setSpecialItems(prev => ({ ...prev, [cat.id]: defaults }))
+                        }} style={{ padding: '6px 12px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a', color: '#92400e', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span className="material-icons-round" style={{ fontSize: 14 }}>star</span>เพิ่ม{cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ'}
+                        </button>
+                      )}
+                    </div>
                     <button className="btn-primary" style={{ fontSize: 12, padding: '6px 16px', background: '#2563eb' }}
                       onClick={() => submitDraft(cat.id, cat)} disabled={submitting === cat.id}>
                       {submitting === cat.id
@@ -2809,6 +2826,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
   // Special expense
   const [hasSpecialExpense, setHasSpecialExpense] = useState(false)
   const [specialExpenseName, setSpecialExpenseName] = useState('ค่าใช้จ่ายพิเศษ')
+  const [specialExpenseFormula, setSpecialExpenseFormula] = useState('fixed')
   const [specialFields, setSpecialFields] = useState<FieldDraft[]>([])
 
   // Preview state
@@ -2876,7 +2894,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
     setFields(CATEGORY_TEMPLATES['fixed'].map(f => ({ ...f })))
     setAllowedUsers([]); setPublicAccess(false); setAccessError(false)
     setUserSearch(''); setUserResults([])
-    setHasSpecialExpense(false); setSpecialExpenseName('ค่าใช้จ่ายพิเศษ'); setSpecialFields([])
+    setHasSpecialExpense(false); setSpecialExpenseName('ค่าใช้จ่ายพิเศษ'); setSpecialExpenseFormula('fixed'); setSpecialFields([])
     setShowModal(true)
   }
 
@@ -2891,6 +2909,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
     setUserSearch(''); setUserResults([])
     setHasSpecialExpense(cat.hasSpecialExpense || false)
     setSpecialExpenseName(cat.specialExpenseName || 'ค่าใช้จ่ายพิเศษ')
+    setSpecialExpenseFormula(cat.specialExpenseFormula || 'fixed')
     setSpecialFields((cat.specialExpenseFields || []).map(f => ({ ...f })))
     setShowModal(true)
   }
@@ -2922,7 +2941,7 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
     setAccessError(false)
     setSaving(true)
     try {
-      const payload = { name, color, icon, formula, order, fields, allowedRoles: [], allowedUsers: publicAccess ? [] : allowedUsers, hasSpecialExpense, specialExpenseName, specialExpenseFields: specialFields }
+      const payload = { name, color, icon, formula, order, fields, allowedRoles: [], allowedUsers: publicAccess ? [] : allowedUsers, hasSpecialExpense, specialExpenseName, specialExpenseFormula, specialExpenseFields: specialFields }
       if (editingId) {
         await categoryApi.update(editingId, payload)
         flash('ok', 'อัปเดตหมวดสำเร็จ')
@@ -3080,43 +3099,54 @@ function CategoryManagerTab({ flash, onCatChange }: { flash: (t: 'ok'|'err', m: 
                 {hasSpecialExpense && (
                   <div style={{ marginTop: 14 }}>
                     <div style={{ marginBottom: 12 }}>
-                      <label className="form-label">ชื่อหัวค่าใช้จ่ายพิเศษ</label>
+                      <label className="form-label">ชื่อหัวรายการพิเศษ</label>
                       <input type="text" className="form-input" placeholder="เช่น ค่าใช้จ่ายพิเศษ" value={specialExpenseName} onChange={e => setSpecialExpenseName(e.target.value)} />
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <label className="form-label">รูปแบบการคำนวณ (รายการพิเศษ)</label>
+                      <select className="form-input" value={specialExpenseFormula} onChange={e => {
+                        const f = e.target.value
+                        setSpecialExpenseFormula(f)
+                        if (CATEGORY_TEMPLATES[f]) setSpecialFields(CATEGORY_TEMPLATES[f].map(x => ({ ...x })))
+                      }}>
+                        {FORMULAS.map(f => <option key={f} value={f}>{FORMULA_LABELS[f] || f}</option>)}
+                      </select>
                     </div>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                         <label className="form-label" style={{ margin: 0 }}>ฟิลด์กรอกข้อมูลพิเศษ</label>
-                        <button onClick={() => setSpecialFields(prev => [...prev, { fieldId: `sp_${Date.now()}`, label: 'ฟิลด์ใหม่', type: 'number', unit: '฿', placeholder: '0', required: false, calcRole: 'fixed', options: [] }])}
+                        <button onClick={() => setSpecialFields(prev => [...prev, { fieldId: `sp_${Date.now()}`, label: 'ฟิลด์ใหม่', type: 'number', unit: '฿', placeholder: '0', required: false, calcRole: 'none', options: [] }])}
                           style={{ padding: '4px 10px', borderRadius: 8, background: '#fef3c7', border: 'none', color: '#92400e', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>เพิ่มฟิลด์
+                          <span className="material-icons-round" style={{ fontSize: 13 }}>add</span>เพิ่มฟิลด์เสริม
                         </button>
                       </div>
                       {specialFields.length === 0 && (
-                        <p style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: '12px 0' }}>ยังไม่มีฟิลด์ — กด "เพิ่มฟิลด์" เพื่อเริ่ม</p>
+                        <p style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: '12px 0' }}>เลือกสูตรด้านบนเพื่อโหลดฟิลด์อัตโนมัติ</p>
                       )}
-                      {specialFields.map((f, idx) => (
-                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 12px', background: 'white', borderRadius: 10, border: '1px solid #fde68a' }}>
-                          <div style={{ flex: 1, minWidth: 120 }}>
-                            <input type="text" className="form-input" style={{ fontSize: 13, padding: '6px 10px' }} placeholder="ชื่อฟิลด์" value={f.label}
-                              onChange={e => setSpecialFields(prev => prev.map((x, i) => i === idx ? { ...x, label: e.target.value } : x))} />
+                      {specialFields.map((f, idx) => {
+                        const rCol = ROLE_COLORS_CALC[f.calcRole] || '#cbd5e1'
+                        return (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 12px', background: 'white', borderRadius: 10, border: '1px solid #fde68a' }}>
+                            <div style={{ width: 34, height: 34, borderRadius: 8, background: rCol + '18', color: rCol, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <span className="material-icons-round" style={{ fontSize: 16 }}>{ROLE_ICONS_CALC[f.calcRole] || 'edit'}</span>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <input type="text" className="form-input" style={{ fontSize: 13, padding: '6px 10px' }} placeholder="ชื่อฟิลด์" value={f.label}
+                                onChange={e => setSpecialFields(prev => prev.map((x, i) => i === idx ? { ...x, label: e.target.value } : x))} />
+                            </div>
+                            <div style={{ width: 90 }}>
+                              <input type="text" className="form-input" style={{ fontSize: 12, padding: '6px 8px', color: '#94a3b8' }} placeholder="placeholder" value={f.placeholder}
+                                onChange={e => setSpecialFields(prev => prev.map((x, i) => i === idx ? { ...x, placeholder: e.target.value } : x))} />
+                            </div>
+                            <input type="text" className="form-input" style={{ width: 55, fontSize: 12, padding: '6px 8px' }} placeholder="หน่วย" value={f.unit}
+                              onChange={e => setSpecialFields(prev => prev.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))} />
+                            <button onClick={() => setSpecialFields(prev => prev.filter((_, i) => i !== idx))}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: 4, display: 'flex', alignItems: 'center' }}>
+                              <span className="material-icons-round" style={{ fontSize: 18 }}>delete_outline</span>
+                            </button>
                           </div>
-                          <div style={{ width: 100 }}>
-                            <input type="text" className="form-input" style={{ fontSize: 12, padding: '6px 10px', color: '#94a3b8' }} placeholder="placeholder" value={f.placeholder}
-                              onChange={e => setSpecialFields(prev => prev.map((x, i) => i === idx ? { ...x, placeholder: e.target.value } : x))} />
-                          </div>
-                          <select className="form-input" style={{ width: 80, fontSize: 12, padding: '6px 8px' }} value={f.type}
-                            onChange={e => setSpecialFields(prev => prev.map((x, i) => i === idx ? { ...x, type: e.target.value as 'number'|'text' } : x))}>
-                            <option value="number">ตัวเลข</option>
-                            <option value="text">ข้อความ</option>
-                          </select>
-                          <input type="text" className="form-input" style={{ width: 60, fontSize: 12, padding: '6px 8px' }} placeholder="หน่วย" value={f.unit}
-                            onChange={e => setSpecialFields(prev => prev.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))} />
-                          <button onClick={() => setSpecialFields(prev => prev.filter((_, i) => i !== idx))}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', padding: 4, display: 'flex', alignItems: 'center' }}>
-                            <span className="material-icons-round" style={{ fontSize: 18 }}>delete_outline</span>
-                          </button>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}

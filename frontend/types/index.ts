@@ -683,6 +683,7 @@ export interface ExpenseCategory {
   notificationSchedule?: NotificationSchedule
   hasSpecialExpense?: boolean
   specialExpenseName?: string
+  specialExpenseFormula?: string
   specialExpenseFields?: CategoryField[]
 }
 
