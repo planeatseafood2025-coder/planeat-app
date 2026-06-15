@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query, Depends, HTTPException
 from ..database import get_db
 from ..deps import get_current_user, require_admin
@@ -41,10 +41,21 @@ async def get_revenue_summary(
 
     for d in deals:
         market = d.get("marketType", "domestic")
+        stage = d.get("stage", "")
         fa = _fmt_thb(d.get("forecastAmount"))
         aa = _fmt_thb(d.get("actualAmount"))
-        is_forecast = bool(d.get("forecastDate") and from_date <= d["forecastDate"] <= to_date)
-        is_actual = bool(d.get("actualReceivedAt") and from_date <= d["actualReceivedAt"] <= to_date)
+        # คาดการณ์ = ดีลที่ยังอยู่ใน pipeline (ยังไม่ won/lost) และมี forecastDate ในช่วง
+        is_forecast = bool(
+            d.get("forecastDate")
+            and from_date <= d["forecastDate"] <= to_date
+            and stage not in ("won", "lost")
+        )
+        # จริง = ดีลที่ปิดสำเร็จ (won) และมีวันรับเงินจริงในช่วง
+        is_actual = bool(
+            d.get("actualReceivedAt")
+            and from_date <= d["actualReceivedAt"] <= to_date
+            and stage == "won"
+        )
 
         if is_forecast:
             forecast_thb += fa
@@ -126,6 +137,20 @@ async def upsert_revenue_target(
     return {"ok": True}
 
 
+async def _compute_won_actual(db, year: int, month: int):
+    """รวมยอดรับจริงจากดีลที่ปิดสำเร็จ (stage=won) ที่มีวันรับเงินในเดือนนั้น"""
+    from_date = f"{year}-{month:02d}-01"
+    last_day = (datetime(year + (month // 12), (month % 12) + 1, 1) - timedelta(days=1)).day
+    to_date = f"{year}-{month:02d}-{last_day:02d}"
+    cursor = db.crm_deals_b2b.find({
+        "stage": "won",
+        "actualReceivedAt": {"$gte": from_date, "$lte": to_date},
+    })
+    deals = await cursor.to_list(length=2000)
+    total = sum(_fmt_thb(d.get("actualAmount")) for d in deals)
+    return total, len(deals)
+
+
 @router.post("/close-month")
 async def close_month(
     body: CloseMonthRequest,
@@ -135,16 +160,29 @@ async def close_month(
     existing = await db.revenue_targets.find_one({"year": body.year, "month": body.month})
     if existing and existing.get("isClosed"):
         raise HTTPException(status_code=400, detail="เดือนนี้ปิดรอบไปแล้ว")
+
+    # คำนวณยอดจริงจากดีล won อัตโนมัติ — ใช้เป็นค่าตั้งต้น
+    computed_actual, won_count = await _compute_won_actual(db, body.year, body.month)
+    if won_count == 0 and body.closedActualThb is None:
+        raise HTTPException(
+            status_code=400,
+            detail="ยังไม่มีดีลที่ปิดสำเร็จ (won) ในเดือนนี้ — ปัดดีลใน Pipeline ให้เป็น won ก่อน หรือระบุยอดเอง",
+        )
+    # admin override ได้ถ้าส่ง closedActualThb มา
+    final_actual = body.closedActualThb if body.closedActualThb is not None else computed_actual
+
     now = datetime.now(timezone.utc).isoformat()
     await db.revenue_targets.update_one(
         {"year": body.year, "month": body.month},
         {"$set": {
             "isClosed": True,
             "closedAt": now,
-            "closedActualThb": body.closedActualThb,
+            "closedActualThb": final_actual,
+            "computedActualThb": computed_actual,
+            "wonDealCount": won_count,
             "closedBy": current.get("username"),
             "updatedAt": now,
         }, "$setOnInsert": {"createdAt": now, "targetThb": 0, "domesticTargetThb": 0, "internationalTargetThb": 0}},
         upsert=True,
     )
-    return {"ok": True}
+    return {"ok": True, "closedActualThb": final_actual, "computedActualThb": computed_actual, "wonDealCount": won_count}

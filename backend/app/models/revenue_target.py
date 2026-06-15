@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class RevenueTargetUpsert(BaseModel):
@@ -12,4 +13,4 @@ class RevenueTargetUpsert(BaseModel):
 class CloseMonthRequest(BaseModel):
     year: int
     month: int
-    closedActualThb: float
+    closedActualThb: Optional[float] = None  # ถ้าไม่ส่งมา จะคำนวณจากดีล won ในเดือนนั้นอัตโนมัติ

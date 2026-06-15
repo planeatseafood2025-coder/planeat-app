@@ -272,25 +272,11 @@ const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
             <StatCard icon="payments" label="มูลค่าดีลที่กำลังดำเนินการ" value={fmtTHB(displayStats.openPipelineThb)} sublabel={`${displayStats.openDealCount} ดีล`} tone="amber" />
             <StatCard icon="verified" label="ยอดปิดได้เดือนนี้" value={fmtTHB(displayStats.wonThisMonthThb)} sublabel={`${displayStats.wonDealCount} ดีลที่ปิดได้`} tone="green" />
             <StatCard icon="notification_important" label="งานติดตามที่เลยกำหนด" value={displayStats.overdueFollowUps} sublabel="บริษัทที่รอติดตาม" tone="purple" />
             <StatCard icon="hourglass_top" label="ดีลค้าง" value={displayStats.stalledDeals} sublabel="เกินระยะของสถานะปัจจุบัน" tone="blue" />
-            <StatCard
-              icon="flag"
-              label="เป้ารายได้เดือนนี้"
-              value={revSummary ? fmtTHB(revSummary.targetThb) : '—'}
-              sublabel="ตั้งโดย Admin"
-              tone="amber"
-            />
-            <StatCard
-              icon="check_circle"
-              label="รายได้จริงเดือนนี้"
-              value={revSummary ? fmtTHB(revSummary.actualThb) : '—'}
-              sublabel={revSummary && revSummary.targetThb ? `${Math.round((revSummary.actualThb / revSummary.targetThb) * 100)}% ของเป้า` : 'ยังไม่มีข้อมูล'}
-              tone="green"
-            />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>

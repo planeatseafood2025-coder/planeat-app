@@ -52,6 +52,7 @@ export default function DealsPage() {
   const [overStage, setOverStage] = useState<string | null>(null)
   const [modal, setModal] = useState<{ open: boolean; data: Partial<Deal> }>({ open: false, data: {} })
   const [saving, setSaving] = useState(false)
+  const [wonModal, setWonModal] = useState<{ open: boolean; deal: Deal | null; amount: string; date: string }>({ open: false, deal: null, amount: '', date: '' })
 
   async function load() {
     setLoading(true)
@@ -75,9 +76,34 @@ export default function DealsPage() {
 
   async function handleDrop(stageKey: string) {
     if (!draggingId) return
-    setDeals(ds => ds.map(d => d._id === draggingId ? { ...d, stage: stageKey } : d))
-    await crmB2bApi.updateDeal(draggingId, { stage: stageKey })
+    const deal = deals.find(d => d._id === draggingId) || null
     setDraggingId(null); setOverStage(null)
+    if (!deal || deal.stage === stageKey) return
+    // ปัดเป็น won → เด้ง popup ยืนยันยอดรับจริง + วันที่รับเงิน
+    if (stageKey === 'won') {
+      const defaultAmount = deal.forecastAmount || deal.valueThb || 0
+      setWonModal({ open: true, deal, amount: String(defaultAmount), date: new Date().toISOString().slice(0, 10) })
+      return
+    }
+    setDeals(ds => ds.map(d => d._id === deal._id ? { ...d, stage: stageKey } : d))
+    await crmB2bApi.updateDeal(deal._id, { stage: stageKey })
+  }
+
+  async function confirmWon() {
+    if (!wonModal.deal) return
+    const amount = parseFloat(wonModal.amount) || 0
+    setSaving(true)
+    try {
+      await crmB2bApi.updateDeal(wonModal.deal._id, {
+        stage: 'won',
+        actualAmount: amount,
+        actualReceivedAt: wonModal.date,
+        revenueStatus: 'received',
+      })
+      setWonModal({ open: false, deal: null, amount: '', date: '' })
+      await load()
+    } catch (e: any) { alert(e.message) }
+    setSaving(false)
   }
 
   async function handleSave() {
@@ -273,6 +299,39 @@ export default function DealsPage() {
               <button onClick={() => setModal({ open: false, data: {} })} style={{ padding: '8px 18px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>ยกเลิก</button>
               <button onClick={handleSave} disabled={saving} style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: '#2563eb', color: '#fff', fontWeight: 600, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
                 {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {wonModal.open && wonModal.deal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 16, width: 'min(420px,100%)', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-icons-round" style={{ fontSize: 20, color: '#16a34a' }}>verified</span>
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>ยืนยันปิดดีล (Won)</h3>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{wonModal.deal.title}</p>
+              </div>
+            </div>
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>ยอดรับจริง (THB) *</label>
+                <input type="number" value={wonModal.amount} onChange={e => setWonModal(m => ({ ...m, amount: e.target.value }))} style={inputStyle} placeholder="0" autoFocus />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>วันที่รับเงิน *</label>
+                <input type="date" value={wonModal.date} onChange={e => setWonModal(m => ({ ...m, date: e.target.value }))} style={inputStyle} />
+              </div>
+              <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>ยอดนี้จะถูกบันทึกเป็น "รายได้จริง" ของเดือนที่รับเงิน และใช้รวมตอนปิดรอบเดือน</p>
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setWonModal({ open: false, deal: null, amount: '', date: '' })} style={{ padding: '8px 18px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>ยกเลิก</button>
+              <button onClick={confirmWon} disabled={saving || !wonModal.date} style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: '#16a34a', color: '#fff', fontWeight: 600, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'กำลังบันทึก...' : 'ยืนยันปิดดีล'}
               </button>
             </div>
           </div>

@@ -433,7 +433,7 @@ export default function RevenuePage() {
               </span>
             ) : (
               <button
-                onClick={() => { setShowCloseForm(f => !f); setShowTargetForm(false) }}
+                onClick={() => { setShowCloseForm(f => { const next = !f; if (next) setCloseActual(String(summary?.actualThb ?? 0)); return next }); setShowTargetForm(false) }}
                 style={{ ...btnStyle, background: '#fff', color: '#dc2626', border: '1px solid #dc2626', display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 <span className="material-icons-round" style={{ fontSize: 16 }}>lock</span>
@@ -477,10 +477,13 @@ export default function RevenuePage() {
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
                 ปิดรอบเดือน — {MONTHS[selectedMonth - 1]} {currentYear}
               </div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>กรอกยอดรายได้จริงที่ได้รับในเดือนนี้</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                ระบบรวมยอดจากดีลที่ปิดสำเร็จ (won) ในเดือนนี้ให้อัตโนมัติ — แก้ไขได้หากต้องการ
+              </div>
               <div style={{ maxWidth: 280, marginBottom: 12 }}>
                 <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>ยอดรายได้จริง (THB)</label>
                 <input type="number" value={closeActual} onChange={e => setCloseActual(e.target.value)} placeholder="0" style={inputStyle} />
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>คำนวณจากดีล won: {fmtTHB(summary?.actualThb ?? 0)}</div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={handleCloseMonth} disabled={saving} style={{ ...btnStyle, background: '#dc2626', color: '#fff', fontSize: 13, padding: '8px 16px' }}>

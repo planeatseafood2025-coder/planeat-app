@@ -87,6 +87,13 @@ class CrmDealCreate(BaseModel):
     assignedTo: str = ""
     expectedCloseDate: Optional[str] = None
     notes: Optional[str] = None
+    # Revenue fields
+    forecastAmount: float = 0
+    forecastDate: Optional[str] = None
+    actualAmount: float = 0
+    actualReceivedAt: Optional[str] = None
+    marketType: str = "domestic"  # domestic | international
+    revenueStatus: str = "pending"  # pending | partial | received
 
 
 class CrmDealUpdate(BaseModel):
@@ -99,6 +106,13 @@ class CrmDealUpdate(BaseModel):
     assignedTo: Optional[str] = None
     expectedCloseDate: Optional[str] = None
     notes: Optional[str] = None
+    # Revenue fields
+    forecastAmount: Optional[float] = None
+    forecastDate: Optional[str] = None
+    actualAmount: Optional[float] = None
+    actualReceivedAt: Optional[str] = None
+    marketType: Optional[str] = None
+    revenueStatus: Optional[str] = None
 
 
 class CrmActivityCreate(BaseModel):
