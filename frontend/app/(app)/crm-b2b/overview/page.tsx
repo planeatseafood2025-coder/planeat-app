@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { crmB2bApi, revenueApi } from '@/lib/api'
-import Link from 'next/link'
 import { buildCrmDemoPreview, shouldUseCrmDemoPreview } from '@/lib/crmB2bDemo'
 import { buildExecutiveRows } from '@/lib/crmB2bExecutive'
 import { translateCrmB2bLabel } from '@/lib/crmB2bLabels'
@@ -132,7 +131,7 @@ export default function CrmOverviewPage() {
   const [dashboard, setDashboard] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [revSummary, setRevSummary] = useState<{ targetThb: number; forecastThb: number; actualThb: number } | null>(null)
-  const [filter, setFilter] = useState({ tier: 'all', countryMode: 'all', country: 'all' })
+const [filter, setFilter] = useState({ tier: 'all', countryMode: 'all', country: 'all' })
   const [autoRotate, setAutoRotate] = useState(true)
   const [selected, setSelected] = useState<any>(null)
   const [demoPreview, setDemoPreview] = useState(false)
@@ -150,7 +149,19 @@ export default function CrmOverviewPage() {
       setDashboard(dashboardResponse)
     } catch (error) {
       console.error(error)
-    } finally {
+    }
+    // Fetch current month revenue summary
+    try {
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = now.getMonth() + 1
+      const from = `${y}-${String(m).padStart(2,'0')}-01`
+      const lastDay = new Date(y, m, 0).getDate()
+      const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`
+      const rev = await (revenueApi.getSummary as any)(from, to)
+      setRevSummary(rev)
+    } catch {}
+    finally {
       setLoading(false)
     }
   }, [])
@@ -159,17 +170,7 @@ export default function CrmOverviewPage() {
     load()
   }, [load])
 
-  useEffect(() => {
-    const now = new Date()
-    const year = now.getFullYear()
-    const month = now.getMonth() + 1
-    const from = `${year}-${String(month).padStart(2, '0')}-01`
-    const lastDay = new Date(year, month, 0).getDate()
-    const to = `${year}-${String(month).padStart(2, '0')}-${lastDay}`
-    revenueApi.getSummary(from, to).then((data: any) => setRevSummary(data)).catch(() => {})
-  }, [])
-
-  const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
+const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
   const demo = demoPreview && canUseDemoPreview ? buildCrmDemoPreview() : null
   const activeData = demo?.data || data
   const activeDashboard = demo?.dashboard || dashboard
@@ -241,17 +242,7 @@ export default function CrmOverviewPage() {
 
   return (
     <div className="page-section active">
-      {revSummary && (
-        <div className="bg-slate-800/60 border border-slate-700 rounded-xl px-5 py-3 flex items-center justify-between mb-4">
-          <div className="flex gap-6 text-sm">
-            <span className="text-slate-400">🎯 เป้า <span className="text-white font-semibold">{revSummary.targetThb >= 1000 ? `฿${(revSummary.targetThb/1000).toFixed(0)}K` : `฿${revSummary.targetThb}`}</span></span>
-            <span className="text-slate-400">📈 คาดการณ์ <span className="text-blue-400 font-semibold">{revSummary.forecastThb >= 1000 ? `฿${(revSummary.forecastThb/1000).toFixed(0)}K` : `฿${revSummary.forecastThb}`}</span></span>
-            <span className="text-slate-400">✅ จริง <span className="text-emerald-400 font-semibold">{revSummary.actualThb >= 1000 ? `฿${(revSummary.actualThb/1000).toFixed(0)}K` : `฿${revSummary.actualThb}`}</span></span>
-          </div>
-          <Link href="/crm-b2b/revenue" className="text-xs text-blue-400 hover:underline whitespace-nowrap">ดูรายละเอียด →</Link>
-        </div>
-      )}
-      {loading ? (
+{loading ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400, color: '#64748b' }}>
           <span className="material-icons-round" style={{ fontSize: 32, animation: 'spin 1s linear infinite' }}>
             refresh
@@ -281,11 +272,25 @@ export default function CrmOverviewPage() {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
             <StatCard icon="payments" label="มูลค่าดีลที่กำลังดำเนินการ" value={fmtTHB(displayStats.openPipelineThb)} sublabel={`${displayStats.openDealCount} ดีล`} tone="amber" />
             <StatCard icon="verified" label="ยอดปิดได้เดือนนี้" value={fmtTHB(displayStats.wonThisMonthThb)} sublabel={`${displayStats.wonDealCount} ดีลที่ปิดได้`} tone="green" />
             <StatCard icon="notification_important" label="งานติดตามที่เลยกำหนด" value={displayStats.overdueFollowUps} sublabel="บริษัทที่รอติดตาม" tone="purple" />
             <StatCard icon="hourglass_top" label="ดีลค้าง" value={displayStats.stalledDeals} sublabel="เกินระยะของสถานะปัจจุบัน" tone="blue" />
+            <StatCard
+              icon="flag"
+              label="เป้ารายได้เดือนนี้"
+              value={revSummary ? fmtTHB(revSummary.targetThb) : '—'}
+              sublabel="ตั้งโดย Admin"
+              tone="amber"
+            />
+            <StatCard
+              icon="check_circle"
+              label="รายได้จริงเดือนนี้"
+              value={revSummary ? fmtTHB(revSummary.actualThb) : '—'}
+              sublabel={revSummary && revSummary.targetThb ? `${Math.round((revSummary.actualThb / revSummary.targetThb) * 100)}% ของเป้า` : 'ยังไม่มีข้อมูล'}
+              tone="green"
+            />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
