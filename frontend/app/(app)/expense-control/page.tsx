@@ -324,6 +324,42 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive, refreshKey }: {
   const [overviewPage, setOverviewPage] = useState(1)
   const [showTable, setShowTable] = useState(false)
   const [catSearch, setCatSearch] = useState('')
+  const [incomeEst, setIncomeEst] = useState(0)
+  const [incomeActual, setIncomeActual] = useState(0)
+  const [incomeEditing, setIncomeEditing] = useState<'est' | 'actual' | null>(null)
+  const [incomeInput, setIncomeInput] = useState('')
+
+  // load/save income per month from localStorage
+  useEffect(() => {
+    const key = `income_${monthFilter}`
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || '{}')
+      setIncomeEst(saved.est || 0)
+      setIncomeActual(saved.actual || 0)
+    } catch { setIncomeEst(0); setIncomeActual(0) }
+    setIncomeEditing(null)
+  }, [monthFilter])
+
+  function saveIncome(field: 'est' | 'actual', val: number) {
+    const key = `income_${monthFilter}`
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || '{}')
+      saved[field] = val
+      localStorage.setItem(key, JSON.stringify(saved))
+    } catch {}
+  }
+
+  function startEdit(field: 'est' | 'actual') {
+    setIncomeEditing(field)
+    setIncomeInput(String(field === 'est' ? incomeEst : incomeActual))
+  }
+
+  function commitEdit() {
+    const val = parseFloat(incomeInput.replace(/,/g, '')) || 0
+    if (incomeEditing === 'est') { setIncomeEst(val); saveIncome('est', val) }
+    else if (incomeEditing === 'actual') { setIncomeActual(val); saveIncome('actual', val) }
+    setIncomeEditing(null)
+  }
 
   const load = useCallback(async (m: string) => {
     setLoading(true)
@@ -427,7 +463,7 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive, refreshKey }: {
       ) : (
         <>
           {/* Summary cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
             <div className="stat-card">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#eff6ff' }}>
@@ -469,6 +505,59 @@ function OverviewTab({ user, onGoToCategories, onGoToExecutive, refreshKey }: {
                     {fmt(totalBudget - totalSpent)}
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Income card */}
+            <div className="stat-card">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#f0fdf4' }}>
+                  <span className="material-icons-round" style={{ color: '#10b981', fontSize: 20 }}>attach_money</span>
+                </div>
+                <p className="text-xs font-semibold text-slate-600">รายได้เดือนนี้</p>
+              </div>
+              <div className="space-y-1.5">
+                {/* ประมาณการ */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">ประมาณการ</span>
+                  {incomeEditing === 'est' ? (
+                    <input autoFocus type="number" value={incomeInput}
+                      onChange={e => setIncomeInput(e.target.value)}
+                      onBlur={commitEdit} onKeyDown={e => e.key === 'Enter' && commitEdit()}
+                      style={{ width: 90, fontSize: 13, fontWeight: 700, color: '#1e293b', border: '1px solid #93c5fd', borderRadius: 6, padding: '1px 6px', textAlign: 'right', outline: 'none' }} />
+                  ) : (
+                    <button onClick={() => startEdit('est')}
+                      style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', borderRadius: 4 }}
+                      title="คลิกเพื่อแก้ไข">
+                      {fmt(incomeEst)} ✎
+                    </button>
+                  )}
+                </div>
+                {/* จริง */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">จริง</span>
+                  {incomeEditing === 'actual' ? (
+                    <input autoFocus type="number" value={incomeInput}
+                      onChange={e => setIncomeInput(e.target.value)}
+                      onBlur={commitEdit} onKeyDown={e => e.key === 'Enter' && commitEdit()}
+                      style={{ width: 90, fontSize: 13, fontWeight: 700, color: '#10b981', border: '1px solid #6ee7b7', borderRadius: 6, padding: '1px 6px', textAlign: 'right', outline: 'none' }} />
+                  ) : (
+                    <button onClick={() => startEdit('actual')}
+                      style={{ fontSize: 13, fontWeight: 700, color: '#10b981', background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', borderRadius: 4 }}
+                      title="คลิกเพื่อแก้ไข">
+                      {fmt(incomeActual)} ✎
+                    </button>
+                  )}
+                </div>
+                {/* กำไร/ขาดทุน */}
+                {incomeActual > 0 && (
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                    <span className="text-xs text-slate-400 whitespace-nowrap">คงเหลือสุทธิ</span>
+                    <span className="text-xs font-bold" style={{ color: incomeActual - totalSpent >= 0 ? '#10b981' : '#ef4444' }}>
+                      {fmt(incomeActual - totalSpent)}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
