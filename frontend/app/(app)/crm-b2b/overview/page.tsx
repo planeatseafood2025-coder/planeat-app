@@ -11,7 +11,7 @@ import RevenueTrendChart from '@/components/crm/RevenueTrendChart'
 const GlobeMap = dynamic(() => import('@/components/crm/GlobeMap'), { ssr: false })
 
 type ViewMode = 'executive' | 'map'
-type ExecutiveTab = 'country' | 'customer' | 'stalled' | 'followup'
+type ExecutiveTab = 'revenue' | 'country' | 'customer' | 'stalled' | 'followup'
 
 function fmtTHB(value: number) {
   if (value >= 1_000_000) return `฿${(value / 1_000_000).toFixed(1)}M`
@@ -43,6 +43,7 @@ const COUNTRY_MODE_OPTIONS = [
 ] as const
 
 const EXECUTIVE_TABS: Array<{ id: ExecutiveTab; label: string }> = [
+  { id: 'revenue', label: 'เทรนด์รายได้' },
   { id: 'country', label: 'สรุปตามประเทศ' },
   { id: 'customer', label: 'สรุปตามลูกค้า' },
   { id: 'stalled', label: 'ดีลค้าง' },
@@ -182,7 +183,7 @@ export default function CrmOverviewPage() {
   const [data, setData] = useState<any>(null)
   const [dashboard, setDashboard] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [revSummary, setRevSummary] = useState<{ targetThb: number; forecastThb: number; actualThb: number } | null>(null)
+  const [revSummary, setRevSummary] = useState<{ targetThb: number; forecastThb: number; actualThb: number; deals?: any[] } | null>(null)
   const [period, setPeriod] = useState<{ mode: PeriodMode; year: number; month: number }>({
     mode: 'month', year: new Date().getFullYear(), month: new Date().getMonth() + 1,
   })
@@ -192,7 +193,7 @@ export default function CrmOverviewPage() {
   const [selected, setSelected] = useState<any>(null)
   const [demoPreview, setDemoPreview] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('executive')
-  const [executiveTab, setExecutiveTab] = useState<ExecutiveTab>('country')
+  const [executiveTab, setExecutiveTab] = useState<ExecutiveTab>('revenue')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -283,6 +284,9 @@ export default function CrmOverviewPage() {
     revSummary.forecastThb === 0 &&
     revSummary.actualThb === 0 &&
     executive.countryRows.length === 0
+  const receivedDeals = (revSummary?.deals || [])
+    .filter((d: any) => d.stage === 'won' && d.actualReceivedAt && (d.actualAmount || 0) > 0)
+    .sort((a: any, b: any) => String(b.actualReceivedAt || '').localeCompare(String(a.actualReceivedAt || '')))
 
   const executiveRows =
     executiveTab === 'country'
@@ -364,9 +368,6 @@ export default function CrmOverviewPage() {
           {/* Revenue hero */}
           <RevenueHero target={revSummary?.targetThb || 0} forecast={revSummary?.forecastThb || 0} actual={revSummary?.actualThb || 0} />
 
-          {/* Trend chart */}
-          <RevenueTrendChart months={trend} activeMonth={period.mode === 'month' ? period.month : undefined} />
-
           {/* Empty state */}
           {noData && !demoPreview && (
             <div style={{ background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 14, padding: 20, marginBottom: 18, textAlign: 'center', color: '#64748b' }}>
@@ -398,6 +399,27 @@ export default function CrmOverviewPage() {
                     ))}
                   </div>
 
+                  {executiveTab === 'revenue' ? (
+                    <div>
+                      <RevenueTrendChart months={trend} activeMonth={period.mode === 'month' ? period.month : undefined} />
+                      <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', padding: 16 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>รายการรับเงินจริง — {periodLabel}</div>
+                        {receivedDeals.length === 0 ? (
+                          <div style={{ color: '#94a3b8', fontSize: 13 }}>ยังไม่มีรายการรับเงินจริงในช่วงนี้ — ปัดดีลเป็น won แล้วกรอกวันที่รับเงินในหน้า Deal Pipeline</div>
+                        ) : (
+                          receivedDeals.map((d: any) => (
+                            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{d.title || '(ไม่มีชื่อดีล)'}</div>
+                                <div style={{ fontSize: 11, color: '#64748b' }}>{d.marketType === 'international' ? 'ต่างประเทศ' : 'ในประเทศ'} · รับเมื่อ {d.actualReceivedAt}</div>
+                              </div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: '#16a34a' }}>{fmtTHB(d.actualAmount)}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : (
                   <div style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, overflow: 'hidden' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: executiveTab === 'country' ? '1.2fr .7fr .7fr .9fr .8fr .8fr .8fr .9fr 1fr' : executiveTab === 'customer' ? '1.5fr .9fr .6fr .7fr .9fr .9fr .9fr .8fr .8fr' : executiveTab === 'stalled' ? '1.3fr 1fr .8fr .7fr .8fr .9fr .7fr .8fr' : '1.2fr .8fr .8fr .8fr .8fr .7fr .8fr .9fr', gap: 12, padding: '12px 14px', color: '#93c5fd', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                       {(executiveTab === 'country'
@@ -484,6 +506,7 @@ export default function CrmOverviewPage() {
                         ))}
                     </div>
                   </div>
+                  )}
                 </TableShell>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
