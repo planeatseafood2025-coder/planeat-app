@@ -6,6 +6,7 @@ import { crmB2bApi, revenueApi } from '@/lib/api'
 import { buildCrmDemoPreview, shouldUseCrmDemoPreview } from '@/lib/crmB2bDemo'
 import { buildExecutiveRows } from '@/lib/crmB2bExecutive'
 import { translateCrmB2bLabel } from '@/lib/crmB2bLabels'
+import RevenueTrendChart from '@/components/crm/RevenueTrendChart'
 
 const GlobeMap = dynamic(() => import('@/components/crm/GlobeMap'), { ssr: false })
 
@@ -47,6 +48,30 @@ const EXECUTIVE_TABS: Array<{ id: ExecutiveTab; label: string }> = [
   { id: 'stalled', label: 'ดีลค้าง' },
   { id: 'followup', label: 'งานติดตาม' },
 ]
+
+type PeriodMode = 'month' | 'quarter' | 'ytd'
+const MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+const YEAR_NOW = new Date().getFullYear()
+const YEAR_OPTIONS = [YEAR_NOW, YEAR_NOW - 1, YEAR_NOW - 2]
+
+function periodRange(p: { mode: PeriodMode; year: number; month: number }) {
+  if (p.mode === 'ytd') return { from: `${p.year}-01-01`, to: `${p.year}-12-31` }
+  if (p.mode === 'quarter') {
+    const q = Math.floor((p.month - 1) / 3)
+    const startM = q * 3 + 1
+    const endM = startM + 2
+    const lastDay = new Date(p.year, endM, 0).getDate()
+    return { from: `${p.year}-${String(startM).padStart(2, '0')}-01`, to: `${p.year}-${String(endM).padStart(2, '0')}-${lastDay}` }
+  }
+  const lastDay = new Date(p.year, p.month, 0).getDate()
+  return { from: `${p.year}-${String(p.month).padStart(2, '0')}-01`, to: `${p.year}-${String(p.month).padStart(2, '0')}-${lastDay}` }
+}
+
+function dashboardParams(p: { mode: PeriodMode; year: number; month: number }) {
+  if (p.mode === 'month') return { period: 'month', year: p.year, month: p.month }
+  if (p.mode === 'quarter') return { period: 'this_quarter' }
+  return { period: 'ytd' }
+}
 
 function StatCard({
   icon,
@@ -126,12 +151,43 @@ function getStatusTone(status: string) {
   return 'neutral'
 }
 
+function RevenueHero({ target, forecast, actual }: { target: number; forecast: number; actual: number }) {
+  const cell = (label: string, value: number, color: string) => {
+    const p = target ? Math.min(100, Math.round((value / target) * 100)) : 0
+    return (
+      <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 6 }}>{label}</div>
+        <div style={{ fontSize: 26, fontWeight: 800, color: '#0f172a' }}>{fmtTHB(value)}</div>
+        <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 8px' }}>{target ? `${p}% ของเป้า` : 'ยังไม่ตั้งเป้า'}</div>
+        <div style={{ height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ width: `${p}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 0.4s' }} />
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.03)', padding: 20, marginBottom: 18, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 6 }}>เป้ารายได้</div>
+        <div style={{ fontSize: 26, fontWeight: 800, color: '#0f172a' }}>{fmtTHB(target)}</div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>ตั้งโดย Admin</div>
+      </div>
+      {cell('รายได้คาดการณ์', forecast, '#2563eb')}
+      {cell('รายได้จริง', actual, '#16a34a')}
+    </div>
+  )
+}
+
 export default function CrmOverviewPage() {
   const [data, setData] = useState<any>(null)
   const [dashboard, setDashboard] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [revSummary, setRevSummary] = useState<{ targetThb: number; forecastThb: number; actualThb: number } | null>(null)
-const [filter, setFilter] = useState({ tier: 'all', countryMode: 'all', country: 'all' })
+  const [period, setPeriod] = useState<{ mode: PeriodMode; year: number; month: number }>({
+    mode: 'month', year: new Date().getFullYear(), month: new Date().getMonth() + 1,
+  })
+  const [trend, setTrend] = useState<Array<{ month: number; targetThb: number; forecastThb: number; actualThb: number }>>([])
+  const [filter, setFilter] = useState({ tier: 'all', countryMode: 'all', country: 'all' })
   const [autoRotate, setAutoRotate] = useState(true)
   const [selected, setSelected] = useState<any>(null)
   const [demoPreview, setDemoPreview] = useState(false)
@@ -141,36 +197,29 @@ const [filter, setFilter] = useState({ tier: 'all', countryMode: 'all', country:
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [overviewResponse, dashboardResponse] = await Promise.all([
+      const { from, to } = periodRange(period)
+      const [overviewResponse, dashboardResponse, rev, tr] = await Promise.all([
         crmB2bApi.getOverview() as any,
-        crmB2bApi.getExecutiveDashboard({ period: 'this_month' }) as any,
+        crmB2bApi.getExecutiveDashboard(dashboardParams(period)) as any,
+        (revenueApi.getSummary as any)(from, to),
+        (revenueApi.getTrend as any)(period.year),
       ])
       setData(overviewResponse)
       setDashboard(dashboardResponse)
+      setRevSummary(rev)
+      setTrend(tr?.months || [])
     } catch (error) {
       console.error(error)
-    }
-    // Fetch current month revenue summary
-    try {
-      const now = new Date()
-      const y = now.getFullYear()
-      const m = now.getMonth() + 1
-      const from = `${y}-${String(m).padStart(2,'0')}-01`
-      const lastDay = new Date(y, m, 0).getDate()
-      const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`
-      const rev = await (revenueApi.getSummary as any)(from, to)
-      setRevSummary(rev)
-    } catch {}
-    finally {
+    } finally {
       setLoading(false)
     }
-  }, [])
+  }, [period])
 
   useEffect(() => {
     load()
   }, [load])
 
-const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
+  const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
   const demo = demoPreview && canUseDemoPreview ? buildCrmDemoPreview() : null
   const activeData = demo?.data || data
   const activeDashboard = demo?.dashboard || dashboard
@@ -222,6 +271,19 @@ const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
     stalledDeals: Number(kpis.stalledDeals?.totalDeals ?? 0),
   }
 
+  const periodLabel =
+    period.mode === 'month'
+      ? `${MONTHS_TH[period.month - 1]} ${period.year + 543}`
+      : period.mode === 'quarter'
+        ? `ไตรมาสปัจจุบัน`
+        : `ปี ${period.year + 543}`
+  const noData =
+    !!revSummary &&
+    revSummary.targetThb === 0 &&
+    revSummary.forecastThb === 0 &&
+    revSummary.actualThb === 0 &&
+    executive.countryRows.length === 0
+
   const executiveRows =
     executiveTab === 'country'
       ? executive.countryRows
@@ -242,7 +304,7 @@ const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
 
   return (
     <div className="page-section active">
-{loading ? (
+      {loading ? (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400, color: '#64748b' }}>
           <span className="material-icons-round" style={{ fontSize: 32, animation: 'spin 1s linear infinite' }}>
             refresh
@@ -269,6 +331,40 @@ const canUseDemoPreview = shouldUseCrmDemoPreview(data, dashboard)
                 </span>
                 {demoPreview ? 'ปิดตัวอย่าง' : 'เปิดตัวอย่างเดโม'}
               </button>
+            </div>
+          )}
+
+          {/* Period selector */}
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 12, marginBottom: 18, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 10, padding: 4 }}>
+              {([['month', 'รายเดือน'], ['quarter', 'ไตรมาส'], ['ytd', 'ทั้งปี']] as [PeriodMode, string][]).map(([m, label]) => (
+                <button key={m} onClick={() => setPeriod((prev) => ({ ...prev, mode: m }))} style={{ ...buttonBase, background: period.mode === m ? '#0f172a' : 'transparent', color: period.mode === m ? '#fff' : '#334155' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <select value={period.year} onChange={(e) => setPeriod((prev) => ({ ...prev, year: Number(e.target.value) }))} style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontWeight: 600, outline: 'none' }}>
+              {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{`ปี ${y + 543}`}</option>)}
+            </select>
+            {period.mode === 'month' && (
+              <select value={period.month} onChange={(e) => setPeriod((prev) => ({ ...prev, month: Number(e.target.value) }))} style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontWeight: 600, outline: 'none' }}>
+                {MONTHS_TH.map((mn, i) => <option key={i} value={i + 1}>{mn}</option>)}
+              </select>
+            )}
+            <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 'auto' }}>กำลังดู: {periodLabel}</span>
+          </div>
+
+          {/* Revenue hero */}
+          <RevenueHero target={revSummary?.targetThb || 0} forecast={revSummary?.forecastThb || 0} actual={revSummary?.actualThb || 0} />
+
+          {/* Trend chart */}
+          <RevenueTrendChart months={trend} activeMonth={period.mode === 'month' ? period.month : undefined} />
+
+          {/* Empty state */}
+          {noData && !demoPreview && (
+            <div style={{ background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 14, padding: 20, marginBottom: 18, textAlign: 'center', color: '#64748b' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>ยังไม่มีข้อมูลของ {periodLabel}</div>
+              <div style={{ fontSize: 12 }}>กรอกมูลค่า/ยอดคาดการณ์ในดีล หรือปัดดีลเป็น won เพื่อให้ตัวเลขขึ้น — หรือกดปุ่ม "เปิดตัวอย่างเดโม" ด้านบนเพื่อดูภาพรวมตัวอย่าง</div>
             </div>
           )}
 
