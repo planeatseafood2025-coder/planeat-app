@@ -155,6 +155,10 @@ def _is_in_period(doc: dict[str, Any], filters: dict[str, str], now: datetime) -
         return date_value.year == now.year and ((date_value.month - 1) // 3) == ((now.month - 1) // 3)
     if period == "ytd":
         return date_value.year == now.year
+    if period == "month":
+        year = int(filters.get("year") or now.year)
+        month = int(filters.get("month") or now.month)
+        return date_value.year == year and date_value.month == month
     return True
 
 
