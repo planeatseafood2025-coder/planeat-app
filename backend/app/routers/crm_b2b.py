@@ -227,6 +227,8 @@ async def executive_dashboard(
     country: str = Query("all"),
     owner: str = Query("all"),
     period: str = Query("this_month"),
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
     current: dict = Depends(get_current_user),
 ):
     db = get_db()
@@ -236,6 +238,10 @@ async def executive_dashboard(
         "owner": owner,
         "period": period,
     }
+    if year is not None:
+        filters["year"] = str(year)
+    if month is not None:
+        filters["month"] = str(month)
     return await get_executive_dashboard(db, filters)
 
 
