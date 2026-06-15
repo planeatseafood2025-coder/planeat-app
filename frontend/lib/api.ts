@@ -405,12 +405,14 @@ export const customerApi = {
 // ─── CRM B2B ─────────────────────────────────────────────────────
 export const crmB2bApi = {
   getOverview: () => request('GET', '/api/crm-b2b/overview'),
-  getExecutiveDashboard: (params?: { marketScope?: string; country?: string; owner?: string; period?: string }) => {
+  getExecutiveDashboard: (params?: { marketScope?: string; country?: string; owner?: string; period?: string; year?: number; month?: number }) => {
     const p: Record<string, string> = {}
     if (params?.marketScope) p.marketScope = params.marketScope
     if (params?.country) p.country = params.country
     if (params?.owner) p.owner = params.owner
     if (params?.period) p.period = params.period
+    if (params?.year) p.year = String(params.year)
+    if (params?.month) p.month = String(params.month)
     return request('GET', '/api/crm-b2b/executive-dashboard', undefined, p)
   },
   getAccounts: (params?: { tier?: string; country?: string; assignedTo?: string; status?: string; q?: string; sort?: string; page?: number; perPage?: number }) => {
@@ -596,4 +598,9 @@ export const revenueApi = {
 
   closeMonth: (data: { year: number; month: number; closedActualThb: number }) =>
     request<{ ok: boolean }>('POST', '/api/crm/revenue/close-month', data),
+
+  getTrend: (year: number) =>
+    request<{ year: number; months: Array<{ month: number; targetThb: number; forecastThb: number; actualThb: number }> }>(
+      'GET', '/api/crm/revenue/trend', undefined, { year: String(year) }
+    ),
 }
