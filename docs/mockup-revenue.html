@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Mockup — สรุปรายได้ CRM</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
+  h2 { color: #f8fafc; font-size: 18px; margin-bottom: 16px; }
+  .section { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .section-title { font-size: 13px; color: #94a3b8; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  /* Month Tabs */
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tab { padding: 6px 14px; border-radius: 20px; font-size: 13px; cursor: pointer; border: 1px solid #334155; color: #94a3b8; background: transparent; }
+  .tab.active { background: #3b82f6; color: white; border-color: #3b82f6; }
+  .custom-range { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .custom-range input { background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; padding: 6px 10px; font-size: 13px; }
+  .custom-range span { color: #94a3b8; font-size: 13px; }
+
+  /* KPI Cards */
+  .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: #0f172a; border-radius: 10px; padding: 16px; }
+  .kpi-label { font-size: 12px; color: #64748b; margin-bottom: 6px; }
+  .kpi-value { font-size: 22px; font-weight: 700; }
+  .kpi-value.target { color: #f8fafc; }
+  .kpi-value.forecast { color: #60a5fa; }
+  .kpi-value.actual { color: #34d399; }
+  .kpi-sub { font-size: 11px; color: #475569; margin-top: 4px; }
+
+  /* Progress Bar */
+  .progress-wrap { margin: 12px 0; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+  .progress-track { background: #0f172a; border-radius: 999px; height: 8px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 999px; }
+  .fill-forecast { background: #3b82f6; width: 64%; }
+  .fill-actual { background: #10b981; width: 36%; }
+
+  /* Split Table */
+  .split-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .split-table th { color: #64748b; font-weight: 500; text-align: left; padding: 6px 8px; border-bottom: 1px solid #1e293b; }
+  .split-table td { padding: 8px; border-bottom: 1px solid #0f172a; }
+  .split-table tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .badge-dom { background: #1d4ed820; color: #60a5fa; }
+  .badge-int { background: #7c3aed20; color: #a78bfa; }
+
+  /* Close Month Button */
+  .btn-close { background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
+  .btn-close:hover { background: #dc2626; }
+  .close-note { font-size: 12px; color: #64748b; margin-top: 8px; }
+
+  /* Deal List */
+  .deal-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #1e293b; font-size: 13px; }
+  .deal-row:last-child { border-bottom: none; }
+  .deal-name { color: #e2e8f0; }
+  .deal-company { color: #64748b; font-size: 11px; }
+  .deal-amount { font-weight: 600; color: #34d399; }
+  .deal-status { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+  .s-received { background: #10b98120; color: #34d399; }
+  .s-forecast { background: #3b82f620; color: #93c5fd; }
+</style>
+</head>
+<body>
+
+<h2>📊 สรุปรายได้ — CRM B2B</h2>
+
+<!-- Section 1: เลือกช่วงเวลา -->
+<div class="section">
+  <div class="section-title">ช่วงเวลา</div>
+  <div class="tabs">
+    <div class="tab">ม.ค.</div>
+    <div class="tab">ก.พ.</div>
+    <div class="tab">มี.ค.</div>
+    <div class="tab">เม.ย.</div>
+    <div class="tab">พ.ค.</div>
+    <div class="tab active">มิ.ย.</div>
+    <div class="tab">ก.ค.</div>
+    <div class="tab">ส.ค.</div>
+    <div class="tab">ก.ย.</div>
+    <div class="tab">ต.ค.</div>
+    <div class="tab">พ.ย.</div>
+    <div class="tab">ธ.ค.</div>
+    <div class="tab">กำหนดเอง</div>
+  </div>
+  <div class="custom-range">
+    <input type="date" value="2026-06-01">
+    <span>ถึง</span>
+    <input type="date" value="2026-06-30">
+  </div>
+</div>
+
+<!-- Section 2: KPI -->
+<div class="section">
+  <div class="section-title">มิถุนายน 2026</div>
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-label">🎯 เป้ารายได้</div>
+      <div class="kpi-value target">฿500,000</div>
+      <div class="kpi-sub">ตั้งโดย Admin</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">📈 รายได้คาดการณ์</div>
+      <div class="kpi-value forecast">฿320,000</div>
+      <div class="kpi-sub">จาก 5 deal ใน pipeline</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">✅ รายได้จริง</div>
+      <div class="kpi-value actual">฿180,000</div>
+      <div class="kpi-sub">รับเงินแล้ว 2 deal</div>
+    </div>
+  </div>
+
+  <div class="progress-wrap">
+    <div class="progress-label"><span>คาดการณ์ vs เป้า</span><span>64%</span></div>
+    <div class="progress-track"><div class="progress-fill fill-forecast"></div></div>
+  </div>
+  <div class="progress-wrap">
+    <div class="progress-label"><span>จริง vs เป้า</span><span>36%</span></div>
+    <div class="progress-track"><div class="progress-fill fill-actual"></div></div>
+  </div>
+</div>
+
+<!-- Section 3: แยก domestic / international -->
+<div class="section">
+  <div class="section-title">แยกตามตลาด</div>
+  <table class="split-table">
+    <thead>
+      <tr>
+        <th>ตลาด</th>
+        <th>คาดการณ์</th>
+        <th>จริง</th>
+        <th>% ของเป้า</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-dom">ในประเทศ</span></td>
+        <td>฿200,000</td>
+        <td>฿120,000</td>
+        <td>24%</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-int">ต่างประเทศ</span></td>
+        <td>฿120,000</td>
+        <td>฿60,000</td>
+        <td>12%</td>
+      </tr>
+      <tr>
+        <td><strong>รวม</strong></td>
+        <td><strong>฿320,000</strong></td>
+        <td><strong>฿180,000</strong></td>
+        <td><strong>36%</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Section 4: Deal list -->
+<div class="section">
+  <div class="section-title">Deal ในเดือนนี้</div>
+  <div class="deal-row">
+    <div>
+      <div class="deal-name">โปรเจกต์ A</div>
+      <div class="deal-company">ASCO Foods — ต่างประเทศ</div>
+    </div>
+    <div style="text-align:right">
+      <div class="deal-amount">฿120,000</div>
+      <div class="deal-status s-received">รับเงินแล้ว</div>
+    </div>
+  </div>
+  <div class="deal-row">
+    <div>
+      <div class="deal-name">โปรเจกต์ B</div>
+      <div class="deal-company">Bangkok Foods — ในประเทศ</div>
+    </div>
+    <div style="text-align:right">
+      <div class="deal-amount" style="color:#60a5fa">฿200,000</div>
+      <div class="deal-status s-forecast">คาดการณ์</div>
+    </div>
+  </div>
+  <div class="deal-row">
+    <div>
+      <div class="deal-name">โปรเจกต์ C</div>
+      <div class="deal-company">Thai Export Co — ในประเทศ</div>
+    </div>
+    <div style="text-align:right">
+      <div class="deal-amount">฿60,000</div>
+      <div class="deal-status s-received">รับเงินแล้ว</div>
+    </div>
+  </div>
+</div>
+
+<!-- Section 5: ปิดเดือน -->
+<div class="section">
+  <div class="section-title">ปิดรอบเดือน</div>
+  <button class="btn-close">🔒 ปิดรอบเดือน มิถุนายน 2026</button>
+  <div class="close-note">เมื่อปิดรอบแล้ว ข้อมูลจะถูกล็อกเป็นประวัติย้อนหลัง Admin เท่านั้นที่แก้ไขได้</div>
+</div>
+
+</body>
+</html>
