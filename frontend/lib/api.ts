@@ -47,7 +47,7 @@ async function request<T>(
       ? detail
       : Array.isArray(detail)
         ? detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ')
-        : `HTTP ${res.status}`
+        : (detail?.message || detail?.error || `HTTP ${res.status}`)
     throw new Error(message)
   }
 
@@ -88,6 +88,23 @@ export const expenseApi = {
     request('POST', '/api/admin/fix-data'),
 }
 
+export const payrollBranchApi = {
+  getPeriods: (branchId?: string, monthKey?: string) =>
+    request('GET', '/api/payroll-branch/periods', undefined, {
+      ...(branchId ? { branchId } : {}),
+      ...(monthKey ? { monthKey } : {}),
+    }),
+  getEmployees: (branchId?: string) =>
+    request('GET', '/api/payroll-branch/employees', undefined, branchId ? { branchId } : {}),
+  getDailyEntries: (periodId: string, workDate?: string) =>
+    request('GET', '/api/payroll-branch/daily-entries', undefined, {
+      periodId,
+      ...(workDate ? { workDate } : {}),
+    }),
+  getRules: (branchId?: string) =>
+    request('GET', '/api/payroll-branch/rules', undefined, branchId ? { branchId } : {}),
+}
+
 // ─── Budget ──────────────────────────────────────────────────────
 export const budgetApi = {
   getBudget: (monthYear?: string) =>
@@ -115,8 +132,39 @@ export const usersApi = {
   },
   updateUser: (username: string, payload: unknown) =>
     request('PUT', `/api/users/${username}`, payload),
+  updateCompanyMailAccount: (username: string, payload: unknown) =>
+    request('PUT', `/api/users/${username}/mail-account`, payload),
+  testCompanyMailAccount: (username: string, payload: unknown) =>
+    request('POST', `/api/users/${username}/mail-account/test`, payload),
   deleteUser: (username: string) =>
     request('DELETE', `/api/users/${username}`),
+}
+
+export const mailApi = {
+  getMyAccount: () =>
+    request('GET', '/api/mail/account/me'),
+  updateMyAccount: (payload: unknown) =>
+    request('PUT', '/api/mail/account/me', payload),
+  getFolders: () =>
+    request('GET', '/api/mail/folders'),
+  getMessages: (params: { folder: string; page?: number; perPage?: number }) =>
+    request('GET', '/api/mail/messages', undefined, {
+      folder: params.folder,
+      page: String(params.page || 1),
+      perPage: String(params.perPage || 50),
+    }),
+  getMessage: (messageId: string, folder: string) =>
+    request('GET', `/api/mail/messages/${encodeURIComponent(messageId)}`, undefined, { folder }),
+  searchRecipients: (q: string) =>
+    request('GET', '/api/mail/recipients', undefined, { q }),
+  send: (payload: unknown) =>
+    request('POST', '/api/mail/send', payload),
+  deleteMessage: (messageId: string, folder: string) =>
+    request('DELETE', `/api/mail/messages/${encodeURIComponent(messageId)}`, undefined, { folder }),
+  markRead: (messageId: string, folder: string) =>
+    request('POST', `/api/mail/messages/${encodeURIComponent(messageId)}/read`, undefined, { folder }),
+  disconnectAccount: () =>
+    request('DELETE', '/api/mail/account/me'),
 }
 
 // ─── Chat ────────────────────────────────────────────────────────
@@ -357,7 +405,15 @@ export const customerApi = {
 // ─── CRM B2B ─────────────────────────────────────────────────────
 export const crmB2bApi = {
   getOverview: () => request('GET', '/api/crm-b2b/overview'),
-  getAccounts: (params?: { tier?: string; country?: string; assignedTo?: string; status?: string; q?: string; sort?: string }) => {
+  getExecutiveDashboard: (params?: { marketScope?: string; country?: string; owner?: string; period?: string }) => {
+    const p: Record<string, string> = {}
+    if (params?.marketScope) p.marketScope = params.marketScope
+    if (params?.country) p.country = params.country
+    if (params?.owner) p.owner = params.owner
+    if (params?.period) p.period = params.period
+    return request('GET', '/api/crm-b2b/executive-dashboard', undefined, p)
+  },
+  getAccounts: (params?: { tier?: string; country?: string; assignedTo?: string; status?: string; q?: string; sort?: string; page?: number; perPage?: number }) => {
     const p: Record<string, string> = {}
     if (params?.tier) p.tier = params.tier
     if (params?.country) p.country = params.country
@@ -365,17 +421,23 @@ export const crmB2bApi = {
     if (params?.status) p.status = params.status
     if (params?.q) p.q = params.q
     if (params?.sort) p.sort = params.sort
+    if (params?.page) p.page = String(params.page)
+    if (params?.perPage) p.perPage = String(params.perPage)
     return request('GET', '/api/crm-b2b/accounts', undefined, p)
   },
+  getOwnerCandidates: () => request('GET', '/api/crm-b2b/owner-candidates'),
   getAccount: (id: string) => request('GET', `/api/crm-b2b/accounts/${id}`),
   createAccount: (data: unknown) => request('POST', '/api/crm-b2b/accounts', data),
   updateAccount: (id: string, data: unknown) => request('PUT', `/api/crm-b2b/accounts/${id}`, data),
   deleteAccount: (id: string) => request('DELETE', `/api/crm-b2b/accounts/${id}`),
-  getContacts: (accountId?: string) => {
+  getContacts: (accountId?: string, page?: number, perPage?: number) => {
     const p: Record<string, string> = {}
     if (accountId) p.accountId = accountId
+    if (page) p.page = String(page)
+    if (perPage) p.perPage = String(perPage)
     return request('GET', '/api/crm-b2b/contacts', undefined, p)
   },
+  getContact: (id: string) => request('GET', `/api/crm-b2b/contacts/${id}`),
   createContact: (data: unknown) => request('POST', '/api/crm-b2b/contacts', data),
   updateContact: (id: string, data: unknown) => request('PUT', `/api/crm-b2b/contacts/${id}`, data),
   deleteContact: (id: string) => request('DELETE', `/api/crm-b2b/contacts/${id}`),
@@ -389,12 +451,50 @@ export const crmB2bApi = {
     if (params?.assignedTo) p.assignedTo = params.assignedTo
     return request('GET', '/api/crm-b2b/deals', undefined, p)
   },
-  createDeal: (data: unknown) => request('POST', '/api/crm-b2b/deals', data),
-  updateDeal: (id: string, data: unknown) => request('PUT', `/api/crm-b2b/deals/${id}`, data),
+  createDeal: (data: {
+    accountId: string
+    title: string
+    value?: number
+    currency?: string
+    valueThb?: number
+    stage?: string
+    probability?: number
+    assignedTo?: string
+    expectedCloseDate?: string
+    forecastAmount?: number
+    forecastDate?: string
+    marketType?: 'domestic' | 'international'
+    closedAt?: string
+    actualAmount?: number
+    actualReceivedAt?: string
+    revenueStatus?: 'pending' | 'partial' | 'received'
+    delayReason?: string
+    notes?: string
+  }) => request('POST', '/api/crm-b2b/deals', data),
+  updateDeal: (id: string, data: {
+    title?: string
+    value?: number
+    currency?: string
+    valueThb?: number
+    stage?: string
+    probability?: number
+    assignedTo?: string
+    expectedCloseDate?: string
+    forecastAmount?: number
+    forecastDate?: string
+    marketType?: 'domestic' | 'international'
+    closedAt?: string
+    actualAmount?: number
+    actualReceivedAt?: string
+    revenueStatus?: 'pending' | 'partial' | 'received'
+    delayReason?: string
+    notes?: string
+  }) => request('PUT', `/api/crm-b2b/deals/${id}`, data),
   deleteDeal: (id: string) => request('DELETE', `/api/crm-b2b/deals/${id}`),
-  getActivities: (params?: { accountId?: string; type?: string }) => {
+  getActivities: (params?: { accountId?: string; contactId?: string; type?: string }) => {
     const p: Record<string, string> = {}
     if (params?.accountId) p.accountId = params.accountId
+    if (params?.contactId) p.contactId = params.contactId
     if (params?.type) p.type = params.type
     return request('GET', '/api/crm-b2b/activities', undefined, p)
   },
@@ -457,4 +557,43 @@ export const agentActivityApi = {
 // ─── Health ──────────────────────────────────────────────────────
 export const healthApi = {
   ping: () => request('GET', '/api/health'),
+}
+
+// ─── Revenue ─────────────────────────────────────────────────────
+export const revenueApi = {
+  getSummary: (from: string, to: string) =>
+    request<{
+      from: string
+      to: string
+      targetThb: number
+      forecastThb: number
+      actualThb: number
+      domestic: { forecastThb: number; actualThb: number }
+      international: { forecastThb: number; actualThb: number }
+      deals: Array<{
+        id: string
+        title: string
+        accountId: string
+        marketType: string
+        forecastAmount: number
+        forecastDate: string | null
+        actualAmount: number
+        actualReceivedAt: string | null
+        revenueStatus: string
+        stage: string
+      }>
+      isClosed: boolean
+      closedActualThb: number
+    }>('GET', '/api/crm/revenue/summary', undefined, { from, to }),
+
+  getTargets: (year: number) =>
+    request<{ year: number; targets: Array<{ month: number; targetThb: number; domesticTargetThb: number; internationalTargetThb: number; isClosed: boolean }> }>(
+      'GET', '/api/crm/revenue/targets', undefined, { year: String(year) }
+    ),
+
+  upsertTarget: (data: { year: number; month: number; targetThb: number; domesticTargetThb: number; internationalTargetThb: number }) =>
+    request<{ ok: boolean }>('POST', '/api/crm/revenue/targets', data),
+
+  closeMonth: (data: { year: number; month: number; closedActualThb: number }) =>
+    request<{ ok: boolean }>('POST', '/api/crm/revenue/close-month', data),
 }
