@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException, BackgroundTasks
 from pymongo.errors import DuplicateKeyError
 from ..models.crm_b2b import (
     CrmAccountCreate, CrmAccountUpdate,
+    build_account_update_payload,
     CrmContactCreate, CrmContactUpdate,
     EmailCampaignCreate,
     CrmDealCreate, CrmDealUpdate,
@@ -17,12 +18,38 @@ from ..models.crm_b2b import (
 from ..deps import get_current_user
 from ..database import get_db
 from ..services.email_service import _send_email_sync
+from ..services.crm_dashboard_service import (
+    derive_account_business_fields,
+    get_executive_dashboard,
+)
 
 router = APIRouter(prefix="/api/crm-b2b", tags=["crm-b2b"])
+DEFAULT_ACCOUNT_TIER = "C"
 
 
 def _norm_text(v: Optional[str]) -> str:
     return (v or "").strip().lower()
+
+
+def _number_or_zero(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_account_doc(account: dict) -> dict:
+    account["_id"] = str(account["_id"])
+    account["dealsOpen"] = int(_number_or_zero(account.get("dealsOpen")))
+    account["dealsValueThb"] = _number_or_zero(account.get("dealsValueThb"))
+    account["tier"] = account.get("tier") or DEFAULT_ACCOUNT_TIER
+    account["status"] = account.get("status") or "active"
+    account["currency"] = account.get("currency") or "THB"
+    account["paymentTerms"] = account.get("paymentTerms") or "NET 30"
+    account["tags"] = account.get("tags") or []
+    account["coordinates"] = account.get("coordinates") or [0, 0]
+    account.update({k: v for k, v in derive_account_business_fields(account).items() if v})
+    return account
 
 
 # Accounts
@@ -36,7 +63,7 @@ async def list_accounts(
     q: Optional[str] = Query(None),
     sort: Optional[str] = Query("value-desc"),
     page: int = Query(1, ge=1),
-    perPage: int = Query(20, ge=1, le=200),
+    perPage: int = Query(20, ge=1, le=1000),
     current: dict = Depends(get_current_user),
 ):
     db = get_db()
@@ -56,8 +83,7 @@ async def list_accounts(
             {"industry": {"$regex": q, "$options": "i"}},
         ]
     accounts = await db.crm_accounts.find(query).to_list(None)
-    for a in accounts:
-        a["_id"] = str(a["_id"])
+    accounts = [_normalize_account_doc(a) for a in accounts]
     if sort == "value-desc":
         accounts.sort(key=lambda a: a.get("dealsValueThb", 0), reverse=True)
     elif sort == "name-asc":
@@ -81,8 +107,7 @@ async def get_account(account_id: str, current: dict = Depends(get_current_user)
     account = await db.crm_accounts.find_one({"_id": account_id})
     if not account:
         raise HTTPException(status_code=404, detail="ไม่พบ account")
-    account["_id"] = str(account["_id"])
-    return account
+    return _normalize_account_doc(account)
 
 
 @router.post("/accounts")
@@ -110,6 +135,7 @@ async def create_account(req: CrmAccountCreate, current: dict = Depends(get_curr
     doc["createdBy"] = current.get("sub", "")
     doc["nameNorm"] = _norm_text(doc.get("name"))
     doc["countryNorm"] = _norm_text(doc.get("country"))
+    doc.update(derive_account_business_fields(doc))
     try:
         await db.crm_accounts.insert_one(doc)
     except DuplicateKeyError:
@@ -120,8 +146,11 @@ async def create_account(req: CrmAccountCreate, current: dict = Depends(get_curr
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, req: CrmAccountUpdate, current: dict = Depends(get_current_user)):
     db = get_db()
-    updates = {k: v for k, v in req.dict().items() if v is not None}
+    updates = build_account_update_payload(req)
     updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    current_doc = await db.crm_accounts.find_one({"_id": account_id}) or {}
+    merged = {**current_doc, **updates}
+    updates.update(derive_account_business_fields(merged))
     await db.crm_accounts.update_one({"_id": account_id}, {"$set": updates})
     return {"success": True}
 
@@ -143,8 +172,7 @@ async def get_overview(current: dict = Depends(get_current_user)):
     activities = await db.crm_activities_b2b.find({}).sort("createdAt", -1).limit(5).to_list(None)
     reminders = await db.crm_reminders_b2b.find({"status": "pending"}).sort("remindAt", 1).limit(4).to_list(None)
 
-    for a in accounts:
-        a["_id"] = str(a["_id"])
+    accounts = [_normalize_account_doc(a) for a in accounts]
     for d in deals:
         d["_id"] = str(d["_id"])
     for a in activities:
@@ -153,23 +181,23 @@ async def get_overview(current: dict = Depends(get_current_user)):
         r["_id"] = str(r["_id"])
 
     open_deals = [d for d in deals if d.get("stage") not in ["won", "lost"]]
-    pipeline_thb = sum(d.get("valueThb", 0) for d in open_deals)
-    won_thb_mtd = sum(d.get("valueThb", 0) for d in deals if d.get("stage") == "won")
+    pipeline_thb = sum(_number_or_zero(d.get("valueThb")) for d in open_deals)
+    won_thb_mtd = sum(_number_or_zero(d.get("valueThb")) for d in deals if d.get("stage") == "won")
 
     by_country: dict = {}
     for a in accounts:
         c = a.get("country", "")
-        by_country[c] = by_country.get(c, 0) + a.get("dealsValueThb", 0)
+        by_country[c] = by_country.get(c, 0) + _number_or_zero(a.get("dealsValueThb"))
     top_countries = sorted(by_country.items(), key=lambda x: x[1], reverse=True)[:6]
 
     pins = [
         {
             "_id": a["_id"],
-            "name": a["name"],
+            "name": a.get("name", ""),
             "country": a.get("country"),
             "city": a.get("city"),
             "tier": a.get("tier"),
-            "dealsOpen": a.get("dealsOpen", 0),
+            "dealsOpen": a.get("dealsOpen"),
             "coordinates": a.get("coordinates", [0, 0]),
         }
         for a in accounts
@@ -193,13 +221,31 @@ async def get_overview(current: dict = Depends(get_current_user)):
     }
 
 
+@router.get("/executive-dashboard")
+async def executive_dashboard(
+    marketScope: str = Query("all"),
+    country: str = Query("all"),
+    owner: str = Query("all"),
+    period: str = Query("this_month"),
+    current: dict = Depends(get_current_user),
+):
+    db = get_db()
+    filters = {
+        "marketScope": marketScope,
+        "country": country,
+        "owner": owner,
+        "period": period,
+    }
+    return await get_executive_dashboard(db, filters)
+
+
 # Contacts
 
 @router.get("/contacts")
 async def list_contacts(
     accountId: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    perPage: int = Query(20, ge=1, le=200),
+    perPage: int = Query(20, ge=1, le=1000),
     current: dict = Depends(get_current_user),
 ):
     db = get_db()
@@ -228,6 +274,16 @@ async def create_contact(req: CrmContactCreate, current: dict = Depends(get_curr
     doc["createdAt"] = datetime.now(timezone.utc).isoformat()
     await db.crm_contacts_b2b.insert_one(doc)
     return {"success": True, "_id": doc["_id"]}
+
+
+@router.get("/contacts/{contact_id}")
+async def get_contact(contact_id: str, current: dict = Depends(get_current_user)):
+    db = get_db()
+    doc = await db.crm_contacts_b2b.find_one({"_id": contact_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="ไม่พบผู้ติดต่อ")
+    doc["_id"] = str(doc["_id"])
+    return {"contact": doc}
 
 
 @router.put("/contacts/{contact_id}")
@@ -406,17 +462,25 @@ async def create_deal(req: CrmDealCreate, current: dict = Depends(get_current_us
     db = get_db()
     doc = req.dict()
     doc["_id"] = str(uuid.uuid4())
-    doc["createdAt"] = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    doc["createdAt"] = now
+    doc["stageUpdatedAt"] = doc.get("stageUpdatedAt") or now
     doc["createdBy"] = current.get("sub", "")
     account = await db.crm_accounts.find_one({"_id": doc["accountId"]})
     if account:
         doc["accountName"] = account.get("name", "")
+        doc["marketScope"] = doc.get("marketScope") or account.get("marketScope")
+        doc["country"] = doc.get("country") or account.get("country")
+        doc["countryCode"] = doc.get("countryCode") or account.get("countryCode")
+        doc["owner"] = doc.get("owner") or doc.get("assignedTo") or account.get("assignedTo", "")
+    else:
+        doc["owner"] = doc.get("owner") or doc.get("assignedTo") or current.get("sub", "")
     await db.crm_deals_b2b.insert_one(doc)
     # Update account dealsOpen count
     open_count = await db.crm_deals_b2b.count_documents({"accountId": doc["accountId"], "stage": {"$nin": ["won", "lost"]}})
     pipeline_val = 0
     async for d in db.crm_deals_b2b.find({"accountId": doc["accountId"]}):
-        pipeline_val += d.get("valueThb", 0)
+        pipeline_val += _number_or_zero(d.get("valueThb"))
     await db.crm_accounts.update_one({"_id": doc["accountId"]}, {"$set": {"dealsOpen": open_count, "dealsValueThb": pipeline_val}})
     return {"success": True, "_id": doc["_id"]}
 
@@ -426,6 +490,9 @@ async def update_deal(deal_id: str, req: CrmDealUpdate, current: dict = Depends(
     db = get_db()
     updates = {k: v for k, v in req.dict().items() if v is not None}
     updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    existing = await db.crm_deals_b2b.find_one({"_id": deal_id}) or {}
+    if updates.get("stage") and updates.get("stage") != existing.get("stage"):
+        updates["stageUpdatedAt"] = updates.get("stageUpdatedAt") or updates["updatedAt"]
     await db.crm_deals_b2b.update_one({"_id": deal_id}, {"$set": updates})
     # Refresh account stats
     deal = await db.crm_deals_b2b.find_one({"_id": deal_id})
@@ -434,7 +501,7 @@ async def update_deal(deal_id: str, req: CrmDealUpdate, current: dict = Depends(
         open_count = await db.crm_deals_b2b.count_documents({"accountId": aid, "stage": {"$nin": ["won", "lost"]}})
         pipeline_val = 0
         async for d in db.crm_deals_b2b.find({"accountId": aid}):
-            pipeline_val += d.get("valueThb", 0)
+            pipeline_val += _number_or_zero(d.get("valueThb"))
         await db.crm_accounts.update_one({"_id": aid}, {"$set": {"dealsOpen": open_count, "dealsValueThb": pipeline_val}})
     return {"success": True}
 
@@ -449,7 +516,7 @@ async def delete_deal(deal_id: str, current: dict = Depends(get_current_user)):
         open_count = await db.crm_deals_b2b.count_documents({"accountId": aid, "stage": {"$nin": ["won", "lost"]}})
         pipeline_val = 0
         async for d in db.crm_deals_b2b.find({"accountId": aid}):
-            pipeline_val += d.get("valueThb", 0)
+            pipeline_val += _number_or_zero(d.get("valueThb"))
         await db.crm_accounts.update_one({"_id": aid}, {"$set": {"dealsOpen": open_count, "dealsValueThb": pipeline_val}})
     return {"success": True}
 
@@ -459,6 +526,7 @@ async def delete_deal(deal_id: str, current: dict = Depends(get_current_user)):
 @router.get("/activities")
 async def list_activities(
     accountId: Optional[str] = Query(None),
+    contactId: Optional[str] = Query(None),
     type: Optional[str] = Query(None),
     current: dict = Depends(get_current_user),
 ):
@@ -466,6 +534,8 @@ async def list_activities(
     query: dict = {}
     if accountId:
         query["accountId"] = accountId
+    if contactId:
+        query["contactId"] = contactId
     if type and type != "all":
         query["type"] = type
     acts = await db.crm_activities_b2b.find(query).sort("createdAt", -1).limit(200).to_list(None)
@@ -484,7 +554,10 @@ async def create_activity(req: CrmActivityCreate, current: dict = Depends(get_cu
     account = await db.crm_accounts.find_one({"_id": doc["accountId"]})
     if account:
         doc["accountName"] = account.get("name", "")
-        await db.crm_accounts.update_one({"_id": doc["accountId"]}, {"$set": {"lastContact": doc["createdAt"][:10]}})
+        await db.crm_accounts.update_one(
+            {"_id": doc["accountId"]},
+            {"$set": {"lastContact": doc["createdAt"][:10], "lastContactAt": doc["createdAt"]}},
+        )
     await db.crm_activities_b2b.insert_one(doc)
     return {"success": True, "_id": doc["_id"]}
 
@@ -527,7 +600,13 @@ async def create_reminder(req: CrmReminderCreate, current: dict = Depends(get_cu
     account = await db.crm_accounts.find_one({"_id": doc["accountId"]})
     if account:
         doc["accountName"] = account.get("name", "")
+        doc["marketScope"] = doc.get("marketScope") or account.get("marketScope")
+        doc["owner"] = doc.get("owner") or account.get("assignedTo", "")
     await db.crm_reminders_b2b.insert_one(doc)
+    await db.crm_accounts.update_one(
+        {"_id": doc["accountId"]},
+        {"$set": {"nextFollowUpAt": doc["remindAt"]}},
+    )
     return {"success": True, "_id": doc["_id"]}
 
 
