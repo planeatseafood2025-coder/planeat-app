@@ -354,6 +354,13 @@ export default function CrmOverviewPage() {
             <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 'auto' }}>กำลังดู: {periodLabel}</span>
           </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
+            <StatCard icon="payments" label="มูลค่าดีลที่กำลังดำเนินการ" value={fmtTHB(displayStats.openPipelineThb)} sublabel={`${displayStats.openDealCount} ดีล`} tone="amber" />
+            <StatCard icon="verified" label="ยอดปิดได้เดือนนี้" value={fmtTHB(displayStats.wonThisMonthThb)} sublabel={`${displayStats.wonDealCount} ดีลที่ปิดได้`} tone="green" />
+            <StatCard icon="notification_important" label="งานติดตามที่เลยกำหนด" value={displayStats.overdueFollowUps} sublabel="บริษัทที่รอติดตาม" tone="purple" />
+            <StatCard icon="hourglass_top" label="ดีลค้าง" value={displayStats.stalledDeals} sublabel="เกินระยะของสถานะปัจจุบัน" tone="blue" />
+          </div>
+
           {/* Revenue hero */}
           <RevenueHero target={revSummary?.targetThb || 0} forecast={revSummary?.forecastThb || 0} actual={revSummary?.actualThb || 0} />
 
@@ -368,18 +375,7 @@ export default function CrmOverviewPage() {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
-            <StatCard icon="payments" label="มูลค่าดีลที่กำลังดำเนินการ" value={fmtTHB(displayStats.openPipelineThb)} sublabel={`${displayStats.openDealCount} ดีล`} tone="amber" />
-            <StatCard icon="verified" label="ยอดปิดได้เดือนนี้" value={fmtTHB(displayStats.wonThisMonthThb)} sublabel={`${displayStats.wonDealCount} ดีลที่ปิดได้`} tone="green" />
-            <StatCard icon="notification_important" label="งานติดตามที่เลยกำหนด" value={displayStats.overdueFollowUps} sublabel="บริษัทที่รอติดตาม" tone="purple" />
-            <StatCard icon="hourglass_top" label="ดีลค้าง" value={displayStats.stalledDeals} sublabel="เกินระยะของสถานะปัจจุบัน" tone="blue" />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700 }}>ภาพรวมสำหรับผู้บริหาร</div>
-              <h1 style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: '4px 0 0' }}>ภาพรวม CRM B2B สำหรับผู้บริหาร</h1>
-            </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
             <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 4, display: 'flex', gap: 4 }}>
               <button onClick={() => setViewMode('executive')} style={{ ...buttonBase, background: viewMode === 'executive' ? '#0f172a' : 'transparent', color: viewMode === 'executive' ? '#fff' : '#334155' }}>
                 ภาพรวมสำหรับผู้บริหาร
