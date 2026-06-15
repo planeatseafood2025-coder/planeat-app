@@ -15,6 +15,12 @@ interface Deal {
   probability: number
   assignedTo: string
   expectedCloseDate?: string
+  forecastAmount?: number
+  forecastDate?: string
+  actualAmount?: number
+  actualReceivedAt?: string
+  marketType?: 'domestic' | 'international'
+  revenueStatus?: 'pending' | 'partial' | 'received'
   notes?: string
   createdAt: string
 }
@@ -34,7 +40,7 @@ function fmtTHB(n: number) {
   return `฿${n.toLocaleString()}`
 }
 
-const BLANK_DEAL = { accountId: '', title: '', value: 0, currency: 'USD', valueThb: 0, stage: 'lead', probability: 10, assignedTo: '', expectedCloseDate: '', notes: '' }
+const BLANK_DEAL = { accountId: '', title: '', value: 0, currency: 'USD', valueThb: 0, stage: 'lead', probability: 10, assignedTo: '', expectedCloseDate: '', forecastAmount: 0, forecastDate: '', actualAmount: 0, actualReceivedAt: '', marketType: 'domestic' as const, revenueStatus: 'pending' as const, notes: '' }
 
 export default function DealsPage() {
   const router = useRouter()
@@ -214,6 +220,53 @@ export default function DealsPage() {
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>วันที่คาดปิด</label>
                 <input type="date" value={modal.data.expectedCloseDate || ''} onChange={e => setField('expectedCloseDate', e.target.value)} style={inputStyle} />
+              </div>
+              {/* Divider */}
+              <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #f1f5f9', paddingTop: 12, marginTop: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>ข้อมูลรายได้</span>
+              </div>
+
+              {/* marketType */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>ตลาด</label>
+                <select value={modal.data.marketType || 'domestic'} onChange={e => setField('marketType', e.target.value)} style={inputStyle}>
+                  <option value="domestic">ในประเทศ</option>
+                  <option value="international">ต่างประเทศ</option>
+                </select>
+              </div>
+
+              {/* revenueStatus */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>สถานะรายได้</label>
+                <select value={modal.data.revenueStatus || 'pending'} onChange={e => setField('revenueStatus', e.target.value)} style={inputStyle}>
+                  <option value="pending">รอดำเนินการ</option>
+                  <option value="partial">รับบางส่วน</option>
+                  <option value="received">รับเงินแล้ว</option>
+                </select>
+              </div>
+
+              {/* forecastAmount */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>คาดการณ์ (THB)</label>
+                <input type="number" value={modal.data.forecastAmount ?? 0} onChange={e => setField('forecastAmount', parseFloat(e.target.value) || 0)} style={inputStyle} placeholder="0" />
+              </div>
+
+              {/* forecastDate */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>วันที่คาดรับเงิน</label>
+                <input type="date" value={modal.data.forecastDate || ''} onChange={e => setField('forecastDate', e.target.value)} style={inputStyle} />
+              </div>
+
+              {/* actualAmount full-width */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>ยอดรับจริง (THB)</label>
+                <input type="number" value={modal.data.actualAmount ?? 0} onChange={e => setField('actualAmount', parseFloat(e.target.value) || 0)} style={inputStyle} placeholder="0" />
+              </div>
+
+              {/* actualReceivedAt */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>วันที่รับเงินจริง</label>
+                <input type="date" value={modal.data.actualReceivedAt || ''} onChange={e => setField('actualReceivedAt', e.target.value)} style={inputStyle} />
               </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
