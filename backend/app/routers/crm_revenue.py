@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from ..database import get_db
 from ..deps import get_current_user, require_admin
 from ..models.revenue_target import RevenueTargetUpsert, CloseMonthRequest
+from ..services.crm_revenue_service import compute_revenue_trend
 
 router = APIRouter(prefix="/api/crm/revenue", tags=["crm-revenue"])
 
@@ -115,6 +116,17 @@ async def get_revenue_targets(
     for d in docs:
         d["_id"] = str(d["_id"])
     return {"year": year, "targets": docs}
+
+
+@router.get("/trend")
+async def revenue_trend(
+    year: int = Query(...),
+    db=Depends(get_db),
+    current=Depends(get_current_user),
+):
+    targets = await db.revenue_targets.find({"year": year}).to_list(length=12)
+    deals = await db.crm_deals_b2b.find({}).to_list(length=5000)
+    return {"year": year, "months": compute_revenue_trend(year, targets, deals)}
 
 
 @router.post("/targets")
